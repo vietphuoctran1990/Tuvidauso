@@ -37,7 +37,7 @@ const GIO_CHI = D_CHI.map((chi, i) => {
   return { value: i, label: `Giờ ${chi} (${String(h1).padStart(2,'0')}h–${String(h2).padStart(2,'0')}h)` }
 })
 
-type Tab = 'laso' | 'daihan' | 'tieuHan'
+type Tab = 'laso' | 'daihan' | 'tieuHan' | 'ai'
 
 interface FormData {
   name: string; gender: 'male'|'female'; isLunar: boolean
@@ -76,6 +76,207 @@ function getTieuHan(result: LaSoResult, birthYear: number) {
 function getDanNap(result: LaSoResult): string {
   const raw = result.getRawData() as any
   return raw.dnan ? 'Thuận (Nam trên Dương, Nữ trên Âm)' : 'Nghịch (Nam trên Âm, Nữ trên Dương)'
+}
+
+// ── Build chart data for AI ────────────────────────────────────────────────
+function buildChartData(result: LaSoResult, form: FormData, daiHan: any[], tieuHan: any[]) {
+  const currentYear = new Date().getFullYear()
+  const age = currentYear - form.year
+  const currentDH = daiHan.find(dh => age >= dh.startAge && age <= dh.endAge)
+  const currentTH = tieuHan.find(th => th.years.includes(currentYear))
+  return {
+    form: {
+      name: form.name || 'Không tên',
+      gender: form.gender === 'male' ? 'Nam' : 'Nữ',
+      year: form.year, month: form.month, day: form.day,
+      isLunar: form.isLunar,
+      gioIndex: form.gioIndex,
+    },
+    info: {
+      nam: result.Info.Nam, gio: result.Info.Gio,
+      amDuong: result.Info.AmDuong, cuc: result.Info.Cuc,
+      chuMenh: result.Info.ChuMenh, chuThan: result.Info.ChuThan,
+      thanCu: result.Info.ThanCu,
+    },
+    danNap: getDanNap(result),
+    palaces: result.Cac_cung.map((c: any) => ({
+      name: c.Name, tieuHan: c.TieuHan,
+      canCung: T_CAN[c.CanCung] ?? '',
+      isLife: c.Name === 'Mệnh', isBody: c.Than === 1,
+      trangSinh: c.TrangSinh, tuan: c.Tuan === 1, triet: c.Triet === 1,
+      locNhap: c.LocNhap, quyenNhap: c.QuyenNhap,
+      khoaNhap: c.KhoaNhap, kyNhap: c.KyNhap,
+      chinhTinh: (c.ChinhTinh ?? []).map((s: any) => ({ name: s.Name, status: s.Status })),
+      saotot:    (c.Saotot   ?? []).map((s: any) => ({ name: s.Name, status: s.Status })),
+      saoxau:    (c.Saoxau   ?? []).map((s: any) => ({ name: s.Name })),
+    })),
+    daiHan: daiHan.map(dh => ({
+      startAge: dh.startAge, endAge: dh.endAge,
+      cungName: dh.cung?.Name ?? '', chiName: dh.chiName,
+      trangSinh: dh.cung?.TrangSinh ?? '',
+      locNhap: dh.cung?.LocNhap, quyenNhap: dh.cung?.QuyenNhap,
+      khoaNhap: dh.cung?.KhoaNhap, kyNhap: dh.cung?.KyNhap,
+      chinhTinh: (dh.cung?.ChinhTinh ?? []).map((s: any) => s.Name),
+      saotot:    (dh.cung?.Saotot   ?? []).slice(0, 8).map((s: any) => s.Name),
+      saoxau:    (dh.cung?.Saoxau   ?? []).slice(0, 5).map((s: any) => s.Name),
+    })),
+    tieuHan: tieuHan.map(th => ({
+      yearChi: th.yearChi, chiName: th.chiName,
+      cungName: th.cung?.Name ?? '', years: th.years,
+      locNhap: th.cung?.LocNhap, kyNhap: th.cung?.KyNhap,
+      chinhTinh: (th.cung?.ChinhTinh ?? []).map((s: any) => s.Name),
+    })),
+    currentYear,
+    currentDH: currentDH ? {
+      startAge: currentDH.startAge, endAge: currentDH.endAge,
+      cungName: currentDH.cung?.Name ?? '',
+      startYear: form.year + currentDH.startAge - 1,
+      endYear:   form.year + currentDH.startAge + 8,
+    } : null,
+    currentTH: currentTH ? {
+      yearChi: currentTH.yearChi, cungName: currentTH.cung?.Name ?? '',
+    } : null,
+  }
+}
+
+// ── Simple markdown renderer ────────────────────────────────────────────────
+function MdText({ text }: { text: string }) {
+  const lines = text.split('\n')
+  const els: React.ReactNode[] = []
+  let listBuf: string[] = []
+
+  const flushList = (key: number) => {
+    if (listBuf.length) {
+      els.push(
+        <ul key={`ul-${key}`} className="md-ul">
+          {listBuf.map((li, i) => (
+            <li key={i} dangerouslySetInnerHTML={{ __html: bold(li) }} />
+          ))}
+        </ul>
+      )
+      listBuf = []
+    }
+  }
+
+  lines.forEach((line, i) => {
+    const t = line.trim()
+    if (t.startsWith('## ')) {
+      flushList(i)
+      els.push(<h2 key={i} className="md-h2">{t.slice(3)}</h2>)
+    } else if (t.startsWith('# ')) {
+      flushList(i)
+      els.push(<h1 key={i} className="md-h1">{t.slice(2)}</h1>)
+    } else if (t.startsWith('- ') || t.startsWith('• ')) {
+      listBuf.push(t.slice(2))
+    } else if (t === '') {
+      flushList(i)
+      els.push(<div key={i} className="md-gap" />)
+    } else {
+      flushList(i)
+      els.push(<p key={i} dangerouslySetInnerHTML={{ __html: bold(t) }} />)
+    }
+  })
+  flushList(lines.length)
+
+  return <div className="md-body">{els}</div>
+}
+
+function bold(s: string): string {
+  return s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+}
+
+// ── AI Interpretation Tab ──────────────────────────────────────────────────
+function InterpretTab({ result, form, daiHan, tieuHan }: {
+  result: LaSoResult; form: FormData; daiHan: any[]; tieuHan: any[]
+}) {
+  const [text, setText] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [done, setDone] = useState(false)
+
+  async function startAnalysis() {
+    setLoading(true)
+    setDone(false)
+    setText('')
+    setError('')
+    const chartData = buildChartData(result, form, daiHan, tieuHan)
+    try {
+      const res = await fetch('/api/interpret', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chartData }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }))
+        setError(err.error || 'Lỗi kết nối API.')
+        setLoading(false)
+        return
+      }
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      while (true) {
+        const { done: rdDone, value } = await reader.read()
+        if (rdDone) break
+        setText(prev => prev + decoder.decode(value))
+      }
+      setDone(true)
+    } catch (e: any) {
+      setError(e.message || 'Lỗi không xác định.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="interpret-tab">
+      {!text && !loading && !error && (
+        <div className="interpret-start">
+          <div className="is-icon">🤖</div>
+          <h2>Giải Thích AI</h2>
+          <p>
+            Claude AI sẽ phân tích toàn diện lá số của <strong>{form.name || 'bạn'}</strong> —
+            tính cách, sự nghiệp, tài chính, tình duyên, sức khỏe,
+            đại hạn hiện tại, tiểu hạn năm nay và lời khuyên thiết thực.
+          </p>
+          <button className="btn-analyze" onClick={startAnalysis}>
+            ✨ Bắt đầu phân tích lá số
+          </button>
+          <p className="is-note">Thời gian: khoảng 30–60 giây · Phân tích dựa trên Claude Sonnet</p>
+        </div>
+      )}
+
+      {loading && !text && (
+        <div className="interpret-loading">
+          <div className="spin">◌</div>
+          <p>Đang phân tích lá số tử vi...</p>
+          <p className="load-sub">Claude đang đọc các sao và tổng hợp kết quả</p>
+        </div>
+      )}
+
+      {text && (
+        <div className="interpret-result">
+          <MdText text={text} />
+          {loading && <span className="cursor-blink">▌</span>}
+        </div>
+      )}
+
+      {error && (
+        <div className="interpret-error">
+          <strong>Lỗi:</strong> {error}
+          <br />
+          {error.includes('ANTHROPIC_API_KEY') && (
+            <span>Vui lòng thêm <code>ANTHROPIC_API_KEY</code> vào Environment Variables trên Netlify.</span>
+          )}
+        </div>
+      )}
+
+      {(done || error) && (
+        <div className="interpret-actions">
+          <button className="btn-reanalyze" onClick={startAnalysis}>🔄 Phân tích lại</button>
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────
@@ -567,8 +768,8 @@ export default function App() {
           <section className="chart-section">
             {/* Tabs */}
             <div className="tabs">
-              {([['laso','🗺 Lá Số'],['daihan','📅 Đại Hạn'],['tieuHan','🔄 Tiểu Hạn']] as [Tab,string][]).map(([t,l]) => (
-                <button key={t} className={`tab-btn ${tab === t ? 'tab-active' : ''}`} onClick={() => setTab(t)}>{l}</button>
+              {([['laso','🗺 Lá Số'],['daihan','📅 Đại Hạn'],['tieuHan','🔄 Tiểu Hạn'],['ai','🤖 Giải Thích AI']] as [Tab,string][]).map(([t,l]) => (
+                <button key={t} className={`tab-btn ${tab === t ? 'tab-active' : ''} ${t === 'ai' ? 'tab-ai' : ''}`} onClick={() => setTab(t)}>{l}</button>
               ))}
             </div>
 
@@ -613,6 +814,13 @@ export default function App() {
 
             {tab === 'daihan' && <DaiHanTab result={result} form={form} />}
             {tab === 'tieuHan' && <TieuHanTab result={result} form={form} />}
+            {tab === 'ai' && (
+              <InterpretTab
+                result={result} form={form}
+                daiHan={getDaiHan(result)}
+                tieuHan={getTieuHan(result, form.year)}
+              />
+            )}
           </section>
         )}
       </main>

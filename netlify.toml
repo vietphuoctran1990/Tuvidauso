@@ -3,6 +3,10 @@
   command = "npm run build"
   publish = "dist"
 
+[[edge_functions]]
+  path = "/api/interpret"
+  function = "interpret"
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
