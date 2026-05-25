@@ -310,10 +310,11 @@ function PalaceCell({ cung, isSelected, onClick }: {
   const hoaStars = new Set<string>([
     cung.LocNhap, cung.QuyenNhap, cung.KhoaNhap, cung.KyNhap
   ].filter(Boolean))
+  const primaryElem = cung.ChinhTinh?.[0]?.NguHanh ?? 0
 
   return (
     <div
-      className={`palace-cell${isLife ? ' palace-life' : ''}${isBody ? ' palace-body' : ''}${isSelected ? ' palace-selected' : ''}`}
+      className={`palace-cell elem-${primaryElem}${isLife ? ' palace-life' : ''}${isBody ? ' palace-body' : ''}${isSelected ? ' palace-selected' : ''}`}
       style={{ gridRow: row, gridColumn: col }}
       onClick={onClick}
     >
@@ -699,9 +700,16 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <span className="h-sym">☯</span>
-        <h1>Tử Vi Đẩu Số</h1>
-        <p className="h-sub">Lá số tử vi trực tuyến · Tính theo phương pháp cổ truyền</p>
+        <div className="header-cosmos" />
+        <div className="header-inner">
+          <div className="sym-ring">
+            <div className="sym-ring-inner">
+              <span className="h-sym">☯</span>
+            </div>
+          </div>
+          <h1>Tử Vi Đẩu Số</h1>
+          <p className="h-sub">Lá số tử vi · Tính theo phương pháp cổ truyền Việt Nam</p>
+        </div>
       </header>
 
       <main className="app-main">
