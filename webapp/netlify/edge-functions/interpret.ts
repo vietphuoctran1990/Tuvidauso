@@ -66,7 +66,17 @@ export default async function handler(request: Request): Promise<Response> {
 
           if (!res.ok || !res.body) {
             const errText = await res.text()
-            controller.enqueue(encoder.encode(`\n\n[Lỗi API: ${errText}]`))
+            let userMsg = `\n\n[Lỗi API: ${errText}]`
+            try {
+              const errJson = JSON.parse(errText)
+              const msg: string = errJson?.error?.message ?? ''
+              if (msg.toLowerCase().includes('credit balance')) {
+                userMsg = '\n\n[Lỗi: Tài khoản API đã hết credits. Vui lòng liên hệ quản trị viên để nạp thêm credits tại console.anthropic.com.]'
+              } else if (msg.toLowerCase().includes('invalid x-api-key') || msg.toLowerCase().includes('authentication')) {
+                userMsg = '\n\n[Lỗi: API key không hợp lệ. Vui lòng kiểm tra cấu hình ANTHROPIC_API_KEY trên Netlify.]'
+              }
+            } catch { /* keep original errText */ }
+            controller.enqueue(encoder.encode(userMsg))
             break
           }
 
