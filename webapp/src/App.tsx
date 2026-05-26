@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { generateLaSo } from 'tuvi-neo'
 import type { LaSoResult } from 'tuvi-neo'
 import { STAR_INFO, PALACE_INFO, TRANG_SINH_INFO } from './starInfo'
@@ -731,6 +731,14 @@ export default function App() {
   const [selectedCung, setSelectedCung] = useState<any>(null)
   const [selectedStar, setSelectedStar] = useState<SelectedStar | null>(null)
   const [downloadingChart, setDownloadingChart] = useState(false)
+  const [theme, setTheme] = useState<'light' | 'dark'>(() =>
+    (localStorage.getItem('tuvi-theme') as 'light' | 'dark') || 'light'
+  )
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('tuvi-theme', theme)
+  }, [theme])
 
   async function handleDownloadChart() {
     const el = document.querySelector('.chart-grid') as HTMLElement
@@ -783,6 +791,13 @@ export default function App() {
           </div>
           <h1>Tử Vi Đẩu Số</h1>
           <p className="h-sub">Lá số tử vi · Tính theo phương pháp cổ truyền Việt Nam</p>
+          <button
+            className="btn-theme"
+            onClick={e => { createRipple(e); setTheme(t => t === 'dark' ? 'light' : 'dark') }}
+            title={theme === 'dark' ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'}
+          >
+            {theme === 'dark' ? '☀ Sáng' : '🌙 Tối'}
+          </button>
         </div>
       </header>
 
