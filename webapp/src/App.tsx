@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { generateLaSo } from 'tuvi-neo'
 import type { LaSoResult } from 'tuvi-neo'
 import { STAR_INFO, PALACE_INFO, TRANG_SINH_INFO } from './starInfo'
+import { exportChartPDF, exportAnalysisPDF } from './pdfExport'
 import './App.css'
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -217,6 +218,14 @@ function InterpretTab({ result, form, daiHan, tieuHan }: {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
+  const [downloading, setDownloading] = useState(false)
+
+  async function handleDownloadAnalysis() {
+    const el = document.querySelector('.interpret-result') as HTMLElement
+    if (!el) return
+    setDownloading(true)
+    try { await exportAnalysisPDF(el, form.name) } finally { setDownloading(false) }
+  }
 
   async function startAnalysis() {
     setLoading(true); setDone(false); setText(''); setError('')
@@ -291,6 +300,11 @@ function InterpretTab({ result, form, daiHan, tieuHan }: {
       {(done || error) && (
         <div className="interpret-actions">
           <button className="btn-reanalyze" onClick={startAnalysis}>🔄 Phân tích lại</button>
+          {done && (
+            <button className="btn-export" onClick={handleDownloadAnalysis} disabled={downloading}>
+              {downloading ? '⏳ Đang tạo PDF...' : '📄 Tải PDF phân tích'}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -682,6 +696,14 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('laso')
   const [selectedCung, setSelectedCung] = useState<any>(null)
   const [selectedStar, setSelectedStar] = useState<SelectedStar | null>(null)
+  const [downloadingChart, setDownloadingChart] = useState(false)
+
+  async function handleDownloadChart() {
+    const el = document.querySelector('.chart-grid') as HTMLElement
+    if (!el) return
+    setDownloadingChart(true)
+    try { await exportChartPDF(el, form.name) } finally { setDownloadingChart(false) }
+  }
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
     const { name, value, type } = e.target
@@ -827,6 +849,11 @@ export default function App() {
                     <span className="tag tuan">Tuần</span>
                     <span className="tag triet">Triệt</span>
                   </div>
+                </div>
+                <div className="export-row">
+                  <button className="btn-export" onClick={handleDownloadChart} disabled={downloadingChart}>
+                    {downloadingChart ? '⏳ Đang tạo PDF...' : '📄 Tải PDF lá số'}
+                  </button>
                 </div>
               </>
             )}

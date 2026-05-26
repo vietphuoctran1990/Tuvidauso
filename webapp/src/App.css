@@ -1126,7 +1126,7 @@ body {
 }
 .interpret-error code { background: rgba(255,255,255,.1); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
 
-.interpret-actions { text-align: center; margin-top: 22px; }
+.interpret-actions { text-align: center; margin-top: 22px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 .btn-reanalyze {
   padding: 8px 24px;
   background: transparent;
@@ -1140,6 +1140,28 @@ body {
   transition: all .2s;
 }
 .btn-reanalyze:hover { border-color: var(--purple); color: var(--purple); box-shadow: var(--glow-purple); }
+
+.export-row { text-align: center; margin-top: 14px; }
+
+.btn-export {
+  padding: 8px 22px;
+  background: linear-gradient(135deg, rgba(22,60,22,.5), rgba(22,60,22,.3));
+  border: 1px solid rgba(74,222,128,.4);
+  border-radius: 20px;
+  color: var(--green);
+  font-family: var(--font-title);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all .2s;
+}
+.btn-export:hover:not(:disabled) {
+  border-color: var(--green);
+  box-shadow: 0 0 14px rgba(74,222,128,.2);
+  transform: translateY(-1px);
+}
+.btn-export:disabled { opacity: .5; cursor: not-allowed; }
 
 /* ── Star Modal ─────────────────────────────────────────────── */
 .modal-overlay {
