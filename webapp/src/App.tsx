@@ -5,6 +5,40 @@ import { STAR_INFO, PALACE_INFO, TRANG_SINH_INFO } from './starInfo'
 import { exportChartPDF, exportAnalysisPDF } from './pdfExport'
 import './App.css'
 
+// ── Mystical interaction effects ────────────────────────────────────────────
+const MP_SYMBOLS = ['✦', '✧', '⋆', '⊹', '✴', '◈', '◆', '⬡', '⊛', '✵']
+const MP_COLORS  = ['#d4af37', '#a855f7', '#22d3ee', '#f0abfc', '#fde68a', '#c084fc']
+
+function burstParticles(e: React.MouseEvent, count = 9) {
+  for (let i = 0; i < count; i++) {
+    const s = document.createElement('span')
+    s.className = 'mp'
+    s.textContent = MP_SYMBOLS[Math.floor(Math.random() * MP_SYMBOLS.length)]
+    const angle = (i / count) * Math.PI * 2 + Math.random() * 0.7
+    const dist  = 45 + Math.random() * 85
+    s.style.cssText = [
+      `left:${e.clientX}px`,
+      `top:${e.clientY}px`,
+      `--dx:${(Math.cos(angle) * dist).toFixed(1)}px`,
+      `--dy:${(Math.sin(angle) * dist - 35).toFixed(1)}px`,
+      `--rot:${(Math.random() * 720 - 360).toFixed(0)}deg`,
+      `color:${MP_COLORS[Math.floor(Math.random() * MP_COLORS.length)]}`,
+      `font-size:${(10 + Math.floor(Math.random() * 11))}px`,
+    ].join(';')
+    document.body.appendChild(s)
+    s.addEventListener('animationend', () => s.remove())
+  }
+}
+
+function createRipple(e: React.MouseEvent<HTMLElement>) {
+  const rect = e.currentTarget.getBoundingClientRect()
+  const d = document.createElement('div')
+  d.className = 'ripple-effect'
+  d.style.cssText = `left:${e.clientX - rect.left}px;top:${e.clientY - rect.top}px`
+  e.currentTarget.appendChild(d)
+  d.addEventListener('animationend', () => d.remove())
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────
 const D_CHI = ['Tý', 'Sửu', 'Dần', 'Mão', 'Thìn', 'Tị', 'Ngọ', 'Mùi', 'Thân', 'Dậu', 'Tuất', 'Hợi']
 const T_CAN = ['Giáp', 'Ất', 'Bính', 'Đinh', 'Mậu', 'Kỷ', 'Canh', 'Tân', 'Nhâm', 'Quý']
@@ -191,7 +225,7 @@ function StarModal({ star, onClose }: { star: SelectedStar; onClose: () => void 
               {st && <span style={{ color: st.color }}>· {st.label}</span>}
             </div>
           </div>
-          <button className="btn-close" onClick={onClose}>✕</button>
+          <button className="btn-close" onClick={e => { createRipple(e); onClose() }}>✕</button>
         </div>
         <div className="star-modal-body">
           {info ? (
@@ -268,7 +302,7 @@ function InterpretTab({ result, form, daiHan, tieuHan }: {
             tính cách, sự nghiệp, tài chính, tình duyên, sức khỏe,
             đại hạn hiện tại, tiểu hạn năm nay và lời khuyên thiết thực.
           </p>
-          <button className="btn-analyze" onClick={startAnalysis}>✨ Bắt đầu phân tích lá số</button>
+          <button className="btn-analyze" onClick={e => { createRipple(e); burstParticles(e, 16); startAnalysis() }}>✨ Bắt đầu phân tích lá số</button>
           <p className="is-note">Thời gian: khoảng 30–60 giây · Phân tích dựa trên Claude AI</p>
         </div>
       )}
@@ -299,9 +333,9 @@ function InterpretTab({ result, form, daiHan, tieuHan }: {
 
       {(done || error) && (
         <div className="interpret-actions">
-          <button className="btn-reanalyze" onClick={startAnalysis}>🔄 Phân tích lại</button>
+          <button className="btn-reanalyze" onClick={e => { createRipple(e); startAnalysis() }}>🔄 Phân tích lại</button>
           {done && (
-            <button className="btn-export" onClick={handleDownloadAnalysis} disabled={downloading}>
+            <button className="btn-export" onClick={e => { createRipple(e); handleDownloadAnalysis() }} disabled={downloading}>
               {downloading ? '⏳ Đang tạo PDF...' : '📄 Tải PDF phân tích'}
             </button>
           )}
@@ -440,7 +474,7 @@ function PalacePanel({ cung, onClose }: { cung: any; onClose: () => void }) {
             <span className="panel-chi">{T_CAN[cung.CanCung]} {cung.TieuHan}</span>
             {cung.Than === 1 && <span className="tag than ml">THÂN</span>}
           </div>
-          <button className="btn-close" onClick={onClose}>✕</button>
+          <button className="btn-close" onClick={e => { createRipple(e); onClose() }}>✕</button>
         </div>
 
         {info && (
@@ -755,7 +789,7 @@ export default function App() {
       <main className="app-main">
         {result && (
           <div className="form-toggle-row">
-            <button className="btn-toggle" onClick={() => setShowForm(v => !v)}>
+            <button className="btn-toggle" onClick={e => { createRipple(e); setShowForm(v => !v) }}>
               {showForm ? '▲ Ẩn form' : '▼ Sửa thông tin'}
             </button>
           </div>
@@ -806,7 +840,7 @@ export default function App() {
                   {GIO_CHI.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
                 </select>
               </div>
-              <button type="submit" className="submit-btn">✨ Xem lá số tử vi</button>
+              <button type="submit" className="submit-btn" onClick={e => { createRipple(e); burstParticles(e, 14) }}>✨ Xem lá số tử vi</button>
               {error && <div className="error-msg">{error}</div>}
             </form>
           </section>
@@ -816,7 +850,7 @@ export default function App() {
           <section className="chart-section">
             <div className="tabs">
               {([['laso','🗺 Lá Số'],['daihan','📅 Đại Hạn'],['tieuHan','🔄 Tiểu Hạn'],['ai','🤖 Phân tích lá số']] as [Tab,string][]).map(([t,l]) => (
-                <button key={t} className={`tab-btn ${tab === t ? 'tab-active' : ''} ${t === 'ai' ? 'tab-ai' : ''}`} onClick={() => setTab(t)}>{l}</button>
+                <button key={t} className={`tab-btn ${tab === t ? 'tab-active' : ''} ${t === 'ai' ? 'tab-ai' : ''}`} onClick={e => { createRipple(e); setTab(t) }}>{l}</button>
               ))}
             </div>
 
@@ -851,7 +885,7 @@ export default function App() {
                   </div>
                 </div>
                 <div className="export-row">
-                  <button className="btn-export" onClick={handleDownloadChart} disabled={downloadingChart}>
+                  <button className="btn-export" onClick={e => { createRipple(e); handleDownloadChart() }} disabled={downloadingChart}>
                     {downloadingChart ? '⏳ Đang tạo PDF...' : '📄 Tải PDF lá số'}
                   </button>
                 </div>
