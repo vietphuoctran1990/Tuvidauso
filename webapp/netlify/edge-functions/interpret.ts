@@ -1,7 +1,7 @@
 // Netlify Edge Function – Deno runtime, streams Gemini interpretation
-// Uses Google Gemini 2.5 Flash (cheap, fast, free tier available)
+// Uses Google Gemini 3.5 Flash
 
-const MODEL = 'gemini-2.5-flash'
+const MODEL = 'gemini-3.5-flash'
 const MAX_OUTPUT_TOKENS = 8192
 const MAX_CONTINUATIONS = 3
 
