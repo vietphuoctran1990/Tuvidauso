@@ -55,10 +55,13 @@ export default async function handler(request: Request): Promise<Response> {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
+              systemInstruction: {
+                parts: [{ text: SYSTEM_INSTRUCTION }],
+              },
               contents,
               generationConfig: {
                 maxOutputTokens: MAX_OUTPUT_TOKENS,
-                temperature: 0.7,
+                temperature: 0.75,
               },
             }),
           })
@@ -143,25 +146,57 @@ export default async function handler(request: Request): Promise<Response> {
   })
 }
 
+// ─── System instruction (set AI role/expertise) ───────────────────────────
+
+const SYSTEM_INSTRUCTION = `Bạn là Tử Vi sư chuyên nghiệp với kiến thức sâu rộng về Tử Vi Đẩu Số theo trường phái Việt Nam. Bạn phân tích lá số theo đúng nguyên tắc:
+
+1. XEM CUNG THỦ VÀ CUNG CHIẾU: Luôn xét cả sao tại cung (thủ) và sao đối chiếu từ cung đối diện (chiếu). Cung Mệnh chịu ảnh hưởng cả từ cung Thiên Di đối diện.
+
+2. TAM HỢP / TỨ CHÍNH: Phân tích mối liên hệ tam hợp (cách nhau 4 cung) và xung chiếu (đối diện). Sao tốt tam hợp chiếu vào cung Mệnh tăng cường vượng khí, sao xấu chiếu vào tạo sát khí.
+
+3. TỨ HÓA XUYÊN CUNG: Khi Hóa Lộc/Quyền/Khoa/Kỵ rơi vào cung nào, phân tích tác động đặc biệt lên lĩnh vực đó. HóaKỵ vào Mệnh khác hoàn toàn HóaKỵ vào Tài Bạch.
+
+4. TỔ HỢP SAO: Các sao trong cùng một cung tương tác với nhau. Tử Vi gặp Thiên Phủ khác Tử Vi gặp Thất Sát. Liêm Trinh đồng cung Thiên Tướng khác Liêm Trinh đồng cung Phá Quân.
+
+5. TRẠNG THÁI SAO: Sao ở Miếu/Vượng/Đắc mạnh hơn Bình/Hàm/Hãm rất nhiều. Tử Vi Hãm không thể vượng bằng Vũ Khúc Miếu.
+
+6. TUẦN/TRIỆT: Cung có Tuần hoặc Triệt là cung yếu, sao trong cung đó giảm sức mạnh đáng kể.
+
+7. ĐẠI HẠN KẾT HỢP BẢN MỆNH: Khi phân tích Đại Hạn, phải xét cả sao Đại Hạn LẪN sao bản mệnh trong cùng cung đó. Đại Hạn qua cung tốt của bản mệnh thì vượng hơn cung xấu.
+
+Viết bằng tiếng Việt thuần thục, rõ ràng, có chiều sâu chuyên môn nhưng dễ hiểu. Trích dẫn tên sao cụ thể khi phân tích để người đọc thấy cơ sở lập luận.`
+
 // ─── Prompt builder ────────────────────────────────────────────────────────
 
 function buildPrompt(d: any): string {
   const { form, info, danNap, palaces, daiHan, tieuHan, currentYear, currentDH, currentTH } = d
   const age = currentYear - form.year
 
+  // Find key palaces for cross-reference hints
+  const palaceMap: Record<string, any> = {}
+  palaces.forEach((p: any) => { palaceMap[p.name] = p })
+
   const palaceLines = palaces
     .map((p: any) => {
-      const chinh = p.chinhTinh.map((s: any) => `${s.name}(${s.status || '-'})`).join(', ') || 'Không có'
-      const tot = p.saotot.map((s: any) => s.name).join(', ')
-      const xau = p.saoxau.map((s: any) => s.name).join(', ')
+      const chinh = p.chinhTinh.map((s: any) => `${s.name}(${s.status || '-'})`).join(', ') || 'Trống'
+      const tot = p.saotot.map((s: any) => s.name).join(', ') || '-'
+      const xau = p.saoxau.map((s: any) => s.name).join(', ') || '-'
       const hoa = [
-        p.locNhap   && `HóaLộc(${p.locNhap})`,
-        p.quyenNhap && `HóaQuyền(${p.quyenNhap})`,
-        p.khoaNhap  && `HóaKhoa(${p.khoaNhap})`,
-        p.kyNhap    && `HóaKỵ(${p.kyNhap})`,
+        p.locNhap   && `HóaLộc(từ ${p.locNhap})`,
+        p.quyenNhap && `HóaQuyền(từ ${p.quyenNhap})`,
+        p.khoaNhap  && `HóaKhoa(từ ${p.khoaNhap})`,
+        p.kyNhap    && `HóaKỵ(từ ${p.kyNhap})`,
+      ].filter(Boolean).join(', ')
+      const flags = [
+        p.isLife  && '★MỆNH',
+        p.isBody  && '◆THÂN',
+        p.tuan    && '⊘Tuần',
+        p.triet   && '⊗Triệt',
       ].filter(Boolean).join(' ')
-      const flags = [p.isLife && 'MỆNH', p.isBody && 'THÂN', p.tuan && 'Tuần', p.triet && 'Triệt'].filter(Boolean).join(',')
-      return `• ${p.name}(${p.canCung} ${p.tieuHan})${flags ? ` [${flags}]` : ''}: CT=${chinh}${tot ? ` | Cát=${tot}` : ''}${xau ? ` | Hung=${xau}` : ''}${hoa ? ` | ${hoa}` : ''} | TS=${p.trangSinh}`
+      return `▸ ${p.name} [${p.canCung} ${p.tieuHan}]${flags ? '  ' + flags : ''}
+    Chính tinh: ${chinh}
+    Cát tinh: ${tot}  |  Hung tinh: ${xau}
+    Tứ Hóa nhập: ${hoa || 'Không'}  |  Trạng sinh: ${p.trangSinh}`
     })
     .join('\n')
 
@@ -170,67 +205,98 @@ function buildPrompt(d: any): string {
       const sy = form.year + dh.startAge - 1
       const ey = sy + 9
       const cur = age >= dh.startAge && age <= dh.endAge
-      return `• ĐH${i + 1} Tuổi${dh.startAge}-${dh.endAge}(${sy}-${ey})${cur ? '←HIỆN TẠI' : ''}: ${dh.cungName}(${dh.chiName}) CT=[${dh.chinhTinh.join(',')}] Cát=[${dh.saotot.join(',')}] Hung=[${dh.saoxau.join(',')}] TS=${dh.trangSinh}${dh.locNhap ? ` Lộc=${dh.locNhap}` : ''}${dh.kyNhap ? ` Kỵ=${dh.kyNhap}` : ''}`
+      const chinh = dh.chinhTinh.join(', ') || 'Trống'
+      const hoa = [
+        dh.locNhap   && `HóaLộc(từ ${dh.locNhap})`,
+        dh.quyenNhap && `HóaQuyền(từ ${dh.quyenNhap})`,
+        dh.khoaNhap  && `HóaKhoa(từ ${dh.khoaNhap})`,
+        dh.kyNhap    && `HóaKỵ(từ ${dh.kyNhap})`,
+      ].filter(Boolean).join(', ')
+      return `• ĐH${i + 1} [Tuổi ${dh.startAge}–${dh.endAge} | Năm ${sy}–${ey}]${cur ? ' ◄ ĐANG CHẠY' : ''}
+    Cung: ${dh.cungName} (${dh.chiName}) | Trạng sinh: ${dh.trangSinh}
+    Chính tinh ĐH: ${chinh}
+    Cát: ${dh.saotot.join(', ') || '-'}  |  Hung: ${dh.saoxau.join(', ') || '-'}
+    Tứ Hóa ĐH: ${hoa || 'Không'}`
     })
     .join('\n')
 
   const thLines = tieuHan
     .map((th: any) => {
       const cur = th.years.includes(currentYear)
-      return `• Năm${th.yearChi}${cur ? '←NĂM NAY' : ''}: ${th.cungName}(${th.chiName}) CT=[${th.chinhTinh.join(',')}]${th.locNhap ? ` Lộc=${th.locNhap}` : ''}${th.kyNhap ? ` Kỵ=${th.kyNhap}` : ''}`
+      const hoa = [
+        th.locNhap && `HóaLộc(${th.locNhap})`,
+        th.kyNhap  && `HóaKỵ(${th.kyNhap})`,
+      ].filter(Boolean).join(', ')
+      return `• Năm ${th.yearChi}${cur ? ' ◄ NĂM NAY' : ''}: Cung ${th.cungName}(${th.chiName}) | CT=[${th.chinhTinh.join(', ') || 'Trống'}]${hoa ? ' | ' + hoa : ''}`
     })
     .join('\n')
 
-  return `Bạn là chuyên gia Tử Vi Đẩu Số uyên thâm. Hãy phân tích toàn diện lá số sau và viết bài giải thích đầy đủ, SÂU SẮC, DỄ HIỂU bằng tiếng Việt cho người không chuyên. Mỗi mục phải phân tích cụ thể dựa trên các sao thực tế trong lá số, KHÔNG nói chung chung.
+  return `Phân tích chuyên sâu lá số Tử Vi Đẩu Số dưới đây. Dựa trên từng sao thực tế trong lá số để lập luận — KHÔNG nói chung chung, PHẢI trích dẫn tên sao và trạng thái cụ thể.
 
-=== LÁ SỐ ===
-Họ tên: ${form.name} | ${form.gender} | Sinh: ${form.day}/${form.month}/${form.year} ${form.isLunar ? '(Âm lịch)' : '(Dương lịch)'}
-Năm Can Chi: ${info.nam} | Giờ: ${info.gio} | ${info.amDuong} | Cục: ${info.cuc}
-Đại Nạp: ${danNap} | Chủ Mệnh: ${info.chuMenh} | Chủ Thân: ${info.chuThan} | ${info.thanCu}
-Tuổi hiện tại: ${age} (năm ${currentYear})
+══════════════════════════════════════════
+ THÔNG TIN LÁ SỐ
+══════════════════════════════════════════
+Họ tên: ${form.name}  |  ${form.gender}  |  Sinh: ${form.day}/${form.month}/${form.year} ${form.isLunar ? '(Âm lịch)' : '(Dương lịch)'}
+Năm sinh: ${info.nam}  |  Giờ: ${info.gio}  |  ${info.amDuong}  |  Cục: ${info.cuc}
+Đại Nạp: ${danNap}
+Chủ Mệnh: ${info.chuMenh}  |  Chủ Thân: ${info.chuThan}  |  ${info.thanCu}
+Tuổi hiện tại: ${age}  (năm ${currentYear})
 
-=== 12 CUNG ===
+══════════════════════════════════════════
+ 12 CUNG
+══════════════════════════════════════════
 ${palaceLines}
 
-=== ĐẠI HẠN ===
+══════════════════════════════════════════
+ ĐẠI HẠN (mỗi giai đoạn 10 năm)
+══════════════════════════════════════════
 ${dhLines}
 
-=== TIỂU HẠN (chu kỳ 12 năm) ===
+══════════════════════════════════════════
+ TIỂU HẠN (chu kỳ 12 năm)
+══════════════════════════════════════════
 ${thLines}
 
----
-Viết bài phân tích theo đúng cấu trúc này, KHÔNG bỏ sót mục nào, mỗi mục tối thiểu 3-5 câu cụ thể:
+══════════════════════════════════════════
+ YÊU CẦU PHÂN TÍCH
+══════════════════════════════════════════
+Viết bài phân tích chuyên sâu theo cấu trúc dưới đây. Mỗi mục TỐI THIỂU 5–8 câu phân tích CỤ THỂ, có dẫn chứng từ sao trong lá số. Áp dụng đúng các nguyên tắc cung thủ–cung chiếu, tam hợp, Tứ Hóa xuyên cung, tổ hợp sao.
 
 ## 🌟 TỔNG QUAN LÁ SỐ
-(Nhận xét tổng thể: lá số mạnh hay yếu, điểm nổi bật nhất, vận mệnh tổng quát)
+Đánh giá tổng thể: Cục mạnh hay yếu? Chính tinh cung Mệnh ở trạng thái nào? Cung Mệnh có được cát tinh hội tụ hay bị hung tinh xâm phạm? Lá số thiên về phú quý, trí tuệ hay sự nghiệp? Điểm mạnh và thách thức lớn nhất của lá số này là gì?
 
-## 👤 TÍNH CÁCH & CON NGƯỜI
-(Dựa trên sao cung Mệnh: tính cách, điểm mạnh, điểm yếu, cách ứng xử)
+## 👤 TÍNH CÁCH & BẢN CHẤT CON NGƯỜI
+Phân tích dựa trên chính tinh cung Mệnh (trạng thái, bản tính), ảnh hưởng Chủ Mệnh, cùng các sao phụ trong cung Mệnh. Xét thêm cung Thiên Di (đối diện) chiếu vào Mệnh. Tính cách nổi trội là gì? Điểm mạnh cần phát huy? Điểm yếu cần khắc phục? Cách ứng xử trong công việc và các mối quan hệ?
 
 ## 💼 SỰ NGHIỆP & CÔNG DANH
-(Từ cung Quan Lộc: nghề nghiệp phù hợp, cơ hội thăng tiến, cách phát triển)
+Phân tích cung Quan Lộc: chính tinh, cát/hung tinh, Tứ Hóa nhập cung. Xét tam hợp chiếu vào Quan Lộc. Nghề nghiệp phù hợp nhất (cụ thể ngành nghề, không nói chung). Khả năng thăng tiến, tự kinh doanh hay đi làm thuê phù hợp hơn? Thời điểm sự nghiệp thuận lợi nhất trong đời?
 
 ## 💰 TÀI CHÍNH & TÀI LỘC
-(Từ cung Tài Bạch: khả năng kiếm tiền, cách giữ tiền, thời điểm tài vượng)
+Phân tích cung Tài Bạch: có Lộc Tồn, Thiên Lộc hay bị Kình Đà xâm phạm không? Tứ Hóa nào nhập Tài Bạch? HóaLộc hay HóaKỵ trong Tài Bạch tác động ra sao? Khả năng tích lũy, đầu tư, kinh doanh? Rủi ro tài chính cần đề phòng? Giai đoạn nào trong cuộc đời tài vượng nhất?
 
 ## 💑 TÌNH DUYÊN & HÔN NHÂN
-(Từ cung Phu Thê: loại người bạn đời phù hợp, thuận lợi/khó khăn, lời khuyên)
+Phân tích cung Phu Thê (hoặc Thê Thiếp): chính tinh tại cung nói lên đặc điểm người bạn đời, sao cát hung ảnh hưởng hôn nhân thế nào? HóaKỵ hay HóaLộc nhập Phu Thê có ý nghĩa gì? Hôn nhân thuận lợi hay trắc trở? Tuổi nào nên kết hôn? Loại người bạn đời phù hợp và không phù hợp?
 
-## 👨‍👩‍👧 GIA ĐÌNH
-(Cung Phụ Mẫu, Tử Tức, Huynh Đệ: quan hệ gia đình, con cái, anh chị em)
+## 👨‍👩‍👧 GIA ĐÌNH & NGƯỜI THÂN
+**Cha mẹ (cung Phụ Mẫu):** Quan hệ với cha mẹ, sự hỗ trợ từ gia đình gốc như thế nào?
+**Anh chị em (cung Huynh Đệ):** Mối quan hệ anh chị em, có tương trợ nhau không?
+**Con cái (cung Tử Tức):** Số con, chất lượng con cái, mối duyên với con?
 
-## 🏥 SỨC KHỎE
-(Cung Tật Ách: các bệnh cần đề phòng, cách giữ gìn sức khỏe)
+## 🏥 SỨC KHỎE & THÂN THỂ
+Phân tích cung Tật Ách: chính tinh và hung tinh tại đây báo hiệu bệnh tật gì? Bộ phận cơ thể nào dễ có vấn đề? (Liêm Trinh → tim/huyết áp, Thái Âm → thận/nội tiết, v.v.) Tuổi nào cần chú ý sức khỏe nhất? Lời khuyên phòng bệnh cụ thể?
 
-## 📅 ĐẠI HẠN HIỆN TẠI (Tuổi ${currentDH ? `${currentDH.startAge}–${currentDH.endAge}, ${currentDH.startYear}–${currentDH.endYear}` : age}, Cung ${currentDH?.cungName ?? ''})
-(Vận khí giai đoạn này: cơ hội, thách thức, lĩnh vực phát triển, điều cần tránh)
+## 🔗 TỨ HÓA & CÁC TƯƠNG TÁC QUAN TRỌNG
+Liệt kê và phân tích TẤT CẢ Tứ Hóa (Lộc/Quyền/Khoa/Kỵ) trong lá số: rơi vào cung nào, từ sao nào hóa ra, tác động cụ thể lên lĩnh vực đó. Có trường hợp HóaKỵ xung về Mệnh/Tài/Quan không? Tổ hợp sao đặc biệt nào đáng chú ý (cát hội hay hung hội)?
 
-## 🔮 VẬN NĂM ${currentYear} (Tiểu Hạn${currentTH ? ` – Cung ${currentTH.cungName}` : ''})
-(Năm nay vận khí ra sao, tháng nào tốt, việc gì nên làm/tránh)
+## 📅 ĐẠI HẠN HIỆN TẠI ${currentDH ? `(Tuổi ${currentDH.startAge}–${currentDH.endAge} | Năm ${currentDH.startYear}–${currentDH.endYear}) — Cung ${currentDH.cungName}` : ''}
+Đây là giai đoạn then chốt: cung Đại Hạn có sao gì? Trạng sinh của Đại Hạn? Đại Hạn hội hợp hay xung khắc với bản Mệnh? Tứ Hóa của Đại Hạn tác động thế nào lên các cung quan trọng (Mệnh, Tài, Quan, Phu Thê)? Cơ hội lớn nhất và rủi ro lớn nhất giai đoạn này? Nên tập trung vào lĩnh vực nào? Điều gì cần tuyệt đối tránh?
 
-## 📊 XU HƯỚNG CÁC ĐẠI HẠN TIẾP THEO
-(Nhận xét ngắn gọn từng giai đoạn sắp tới: nên chuẩn bị gì)
+## 🔮 VẬN NĂM ${currentYear}${currentTH ? ` — Tiểu Hạn Cung ${currentTH.cungName}` : ''}
+Tiểu Hạn năm nay đi vào cung nào, sao gì? Kết hợp Đại Hạn + Tiểu Hạn + bản Mệnh tạo ra vận khí năm nay như thế nào? Quý nào trong năm tốt nhất? Tháng âm lịch nào cần cẩn thận? Nên hành động hay nên giữ thủ? Lĩnh vực nào nổi bật (tình cảm, sự nghiệp, hay tài chính)?
 
-## 💡 KẾT LUẬN & LỜI KHUYÊN
-(Tóm tắt điểm mạnh cần phát huy, điểm yếu cần khắc phục, thời điểm vàng trong cuộc đời, lời khuyên thiết thực)`
+## 📊 TOÀN BỘ LỘ TRÌNH ĐẠI HẠN
+Nhận xét từng Đại Hạn trong cuộc đời (không bỏ sót Đại Hạn nào), đặc biệt làm rõ: Đại Hạn nào là đỉnh cao? Đại Hạn nào là đáy? Giai đoạn nào cần đầu tư mạnh? Giai đoạn nào cần thận trọng? Sau ${currentYear} còn những "thời vàng" nào?
+
+## 💡 KẾT LUẬN & LỜI KHUYÊN CHIẾN LƯỢC
+Tóm tắt bức tranh tổng thể cuộc đời theo lá số. 3–5 điểm mạnh quan trọng nhất cần phát huy. 3–5 điểm yếu và cách hóa giải theo Tử Vi (có thể đề xuất màu sắc, hướng, nghề nghiệp phù hợp). Thời điểm vàng trong cuộc đời cần nắm bắt. Lời khuyên thiết thực và cụ thể nhất dành riêng cho người này.`
 }
