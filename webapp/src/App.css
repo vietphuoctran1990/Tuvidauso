@@ -402,6 +402,8 @@ body {
   background: var(--surf-1); border: 1px solid var(--border-dim);
   border-radius: 30px; backdrop-filter: blur(12px);
   width: fit-content; max-width: 100%; flex-wrap: wrap;
+  position: sticky; top: 0; z-index: 40;
+  background: rgba(245,240,232,0.92);
 }
 
 .tab-btn {
@@ -424,6 +426,10 @@ body {
 
 .tab-ai { border-color: rgba(66,133,244,.25) !important; color: var(--text-2) !important; }
 .tab-ai:hover { border-color: #4285f4 !important; color: #4285f4 !important; }
+[data-theme="dark"] .tabs {
+  background: rgba(4,1,18,0.92) !important;
+}
+
 .tab-active.tab-ai {
   background: linear-gradient(135deg, rgba(66,133,244,.15), rgba(26,115,232,.08)) !important;
   border-color: #4285f4 !important; color: #1a73e8 !important;
@@ -1134,3 +1140,269 @@ body {
 
   .birth-form { padding: 22px 18px; }
 }
+
+/* ── Form toggle row extended ───────────────────────────────── */
+.form-toggle-row {
+  display: flex; align-items: center; gap: 8px;
+  justify-content: center; margin-bottom: 16px; flex-wrap: wrap; position: relative;
+}
+
+.btn-save {
+  padding: 6px 16px; background: var(--surf-1);
+  border: 1px solid var(--border-gold); border-radius: 20px;
+  color: var(--gold); font-size: 12px; font-family: var(--font-title); letter-spacing: 1px;
+  cursor: pointer; transition: all .2s; backdrop-filter: blur(10px);
+  position: relative; overflow: hidden;
+}
+.btn-save:hover { border-color: var(--gold); box-shadow: var(--glow-gold); transform: translateY(-1px); }
+
+.saved-charts-wrap { position: relative; }
+
+.btn-saved-toggle {
+  padding: 6px 14px; background: var(--surf-1);
+  border: 1px solid var(--border-dim); border-radius: 20px;
+  color: var(--text-2); font-size: 12px; font-family: var(--font-title); letter-spacing: 1px;
+  cursor: pointer; transition: all .2s; backdrop-filter: blur(10px);
+  position: relative; overflow: hidden;
+}
+.btn-saved-toggle:hover { border-color: var(--border-mid); color: var(--purple); }
+
+.saved-charts-dropdown {
+  position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  background: var(--surf-1); border: 1px solid var(--border-gold);
+  border-radius: var(--radius-md); padding: 8px; min-width: 260px; max-width: 320px;
+  z-index: 100; backdrop-filter: blur(16px);
+  box-shadow: 0 8px 30px rgba(0,0,0,.12), var(--glow-gold);
+  animation: fadeUp .18s ease;
+  max-height: 320px; overflow-y: auto;
+}
+.saved-chart-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 8px; border-radius: var(--radius-sm); gap: 6px;
+  border-bottom: 1px solid var(--border-dim);
+}
+.saved-chart-item:last-child { border-bottom: none; }
+.saved-chart-item:hover { background: var(--surf-2); }
+.saved-chart-label { font-size: 12px; color: var(--text-1); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.saved-chart-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.btn-sc-load {
+  padding: 3px 10px; background: rgba(124,58,237,.08); border: 1px solid rgba(124,58,237,.25);
+  border-radius: 10px; color: var(--purple); font-size: 11px; cursor: pointer;
+  transition: all .18s;
+}
+.btn-sc-load:hover { background: rgba(124,58,237,.18); }
+.btn-sc-del {
+  padding: 3px 10px; background: rgba(220,38,38,.06); border: 1px solid rgba(220,38,38,.22);
+  border-radius: 10px; color: var(--red); font-size: 11px; cursor: pointer;
+  transition: all .18s;
+}
+.btn-sc-del:hover { background: rgba(220,38,38,.14); }
+.saved-charts-empty { font-size: 12px; color: var(--text-3); text-align: center; padding: 8px 0; }
+
+/* ── Skeleton loading ───────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(3, 130px);
+  gap: 3px; border-radius: var(--radius-md); overflow: hidden;
+  border: 1px solid var(--border-gold);
+  margin-bottom: 18px;
+}
+
+.skeleton-cell {
+  background: linear-gradient(90deg, var(--surf-1) 25%, var(--surf-2) 50%, var(--surf-1) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  min-height: 130px;
+}
+
+/* ── Palace highlight — tam hợp / xung ─────────────────────── */
+.palace-tamhop {
+  border-color: #d97706 !important;
+  box-shadow: 0 0 0 1px #d97706, 0 0 14px rgba(217,119,6,.30) !important;
+}
+[data-theme="dark"] .palace-tamhop {
+  border-color: #fbbf24 !important;
+  box-shadow: 0 0 0 1px #fbbf24, 0 0 18px rgba(251,191,36,.35) !important;
+}
+
+.palace-xung {
+  border-color: #dc2626 !important;
+  box-shadow: 0 0 0 1px #dc2626, 0 0 14px rgba(220,38,38,.30) !important;
+}
+[data-theme="dark"] .palace-xung {
+  border-color: #f87171 !important;
+  box-shadow: 0 0 0 1px #f87171, 0 0 18px rgba(248,113,113,.35) !important;
+}
+
+/* ── Annual stars overlay ───────────────────────────────────── */
+.pc-annual-stars {
+  display: flex; flex-wrap: wrap; gap: 2px; margin-top: auto; padding-top: 3px;
+  border-top: 1px dashed rgba(212,175,55,.25);
+}
+.annual-star-badge {
+  font-size: 11px; cursor: default;
+  display: inline-flex; align-items: center; gap: 1px;
+}
+
+.annual-stars-controls {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;
+}
+.btn-annual-toggle {
+  padding: 5px 14px; background: var(--surf-1);
+  border: 1px solid var(--border-gold); border-radius: 16px;
+  color: var(--gold); font-size: 11px; font-family: var(--font-title); letter-spacing: 1px;
+  cursor: pointer; transition: all .2s;
+}
+.btn-annual-toggle:hover, .btn-annual-active {
+  background: rgba(140,100,10,.08) !important; box-shadow: var(--glow-gold);
+}
+.annual-year-select {
+  padding: 4px 10px; background: var(--form-inner);
+  border: 1px solid var(--border-gold); border-radius: 12px;
+  color: var(--text-1); font-size: 12px; outline: none;
+}
+
+/* ── DH fortune score bar ───────────────────────────────────── */
+.dh-score-bar-wrap { margin-top: 8px; }
+.dh-score-bar-label { font-size: 10px; color: var(--text-3); margin-bottom: 3px; }
+.dh-score-bar-track {
+  height: 6px; background: var(--surf-3); border-radius: 3px; overflow: hidden;
+  border: 1px solid var(--border-dim);
+}
+.dh-score-bar-fill { height: 100%; border-radius: 3px; transition: width .4s ease; }
+
+/* ── Chart Center stats ─────────────────────────────────────── */
+.cc-stats { width: 100%; position: relative; z-index: 1; margin-top: 2px; }
+.cc-stats-row { display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 4px; }
+.cc-stat-good { color: var(--green); font-weight: 600; }
+.cc-stat-bad  { color: var(--red);   font-weight: 600; }
+.cc-strength-bar-wrap {
+  height: 5px; background: rgba(220,38,38,.2);
+  border-radius: 3px; overflow: hidden; border: 1px solid var(--border-dim);
+}
+.cc-strength-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #16a34a, #4ade80);
+  border-radius: 3px; transition: width .4s ease;
+}
+
+/* ── Year picker in InterpretTab ────────────────────────────── */
+.year-picker-row {
+  display: flex; align-items: center; gap: 10px; justify-content: center; margin-bottom: 20px; flex-wrap: wrap;
+}
+.year-picker-label { font-size: 12px; color: var(--text-2); font-family: var(--font-title); letter-spacing: 1px; }
+.year-picker-select {
+  padding: 6px 14px; background: var(--form-inner);
+  border: 1px solid var(--border-gold); border-radius: var(--radius-sm);
+  color: var(--text-1); font-size: 13px; outline: none;
+  transition: border-color .2s;
+}
+.year-picker-select:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(140,100,10,.10); }
+
+.interpret-year-badge {
+  display: inline-block; font-size: 11px; font-family: var(--font-title);
+  letter-spacing: 1.5px; color: var(--gold); background: rgba(140,100,10,.08);
+  border: 1px solid rgba(140,100,10,.25); border-radius: 12px;
+  padding: 3px 12px; margin-bottom: 16px;
+}
+[data-theme="dark"] .interpret-year-badge {
+  background: rgba(212,175,55,.10); border-color: rgba(212,175,55,.3); color: #fde68a;
+}
+
+/* ── Progress indicator ─────────────────────────────────────── */
+.progress-indicator {
+  text-align: center; font-size: 12px; color: var(--text-3);
+  padding: 8px 16px; margin-bottom: 8px;
+  background: var(--surf-1); border: 1px solid var(--border-dim);
+  border-radius: var(--radius-sm); animation: fadeUp .2s ease;
+}
+.progress-indicator em { color: var(--gold); font-style: normal; font-weight: 600; }
+
+/* ── TieuHan analyze button ─────────────────────────────────── */
+.btn-th-analyze {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; margin-left: 4px;
+  background: rgba(66,133,244,.08); border: 1px solid rgba(66,133,244,.3);
+  border-radius: 50%; color: #4285f4; font-size: 10px; cursor: pointer;
+  transition: all .2s; flex-shrink: 0;
+}
+.btn-th-analyze:hover { background: rgba(66,133,244,.2); transform: scale(1.15); }
+
+/* ── Onboarding tooltip ─────────────────────────────────────── */
+.onboarding-tooltip {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -60%);
+  background: rgba(30,20,60,.93);
+  color: #fff;
+  padding: 14px 22px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  font-family: var(--font-body);
+  border: 1px solid rgba(212,175,55,.4);
+  box-shadow: 0 8px 32px rgba(0,0,0,.35), 0 0 20px rgba(212,175,55,.15);
+  z-index: 9990;
+  pointer-events: auto;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  max-width: 320px;
+  text-align: center;
+  line-height: 1.55;
+  animation: onboardIn .4s cubic-bezier(.22,1,.36,1);
+}
+@keyframes onboardIn {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(.85); }
+  to   { opacity: 1; transform: translate(-50%, -60%) scale(1); }
+}
+[data-theme="dark"] .onboarding-tooltip {
+  background: rgba(10,5,25,.96); border-color: rgba(212,175,55,.45);
+}
+
+/* ── Star search input in PalacePanel ───────────────────────── */
+.star-search-input {
+  width: 100%; padding: 8px 12px; margin-bottom: 12px;
+  background: var(--form-inner); border: 1px solid var(--border-dim);
+  border-radius: var(--radius-sm); color: var(--text-1); font-size: 13px;
+  outline: none; transition: border-color .2s;
+}
+.star-search-input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(140,100,10,.10); }
+.star-search-input::placeholder { color: var(--text-3); }
+[data-theme="dark"] .star-search-input:focus { box-shadow: 0 0 0 3px rgba(212,175,55,.12); }
+
+/* ── Mobile list view ───────────────────────────────────────── */
+.palace-list-view {
+  display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px;
+}
+.palace-list-card {
+  background: var(--surf-1); border: 1px solid var(--border-dim);
+  border-radius: var(--radius-md); padding: 12px 14px;
+  cursor: pointer; transition: background .18s, border-color .18s;
+}
+.palace-list-card:hover { background: var(--surf-2); border-color: var(--border-mid); }
+.plc-header {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 7px;
+}
+.plc-name {
+  font-family: var(--font-title); font-size: 14px; font-weight: 700; color: var(--purple);
+}
+.plc-chi { font-size: 11px; color: var(--text-3); }
+.plc-stars { display: flex; flex-wrap: wrap; gap: 3px 6px; }
+
+.btn-list-toggle {
+  padding: 8px 18px;
+  background: var(--surf-1);
+  border: 1px solid var(--border-mid); border-radius: 20px;
+  color: var(--text-2); font-family: var(--font-title); font-size: 11px;
+  font-weight: 600; letter-spacing: 1px; cursor: pointer; transition: all .2s;
+  position: relative; overflow: hidden;
+}
+.btn-list-toggle:hover { border-color: var(--purple); color: var(--purple); box-shadow: var(--glow-purple); }
+
+.export-row { text-align: center; margin-top: 14px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
