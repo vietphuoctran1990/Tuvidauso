@@ -44,6 +44,8 @@ interface FormData {
   year: number; month: number; day: number; gioIndex: number
 }
 
+interface SelectedStar { name: string; status?: string; hanh?: number }
+
 // ── Utilities ──────────────────────────────────────────────────────────────
 function findPalaceByPos(result: LaSoResult, pos: number) {
   const chiName = D_CHI[pos - 1]
@@ -54,8 +56,7 @@ function getDaiHan(result: LaSoResult) {
   const raw = result.getRawData() as any
   const stars = raw.boSao.filter((s: any) => s.type === 'D').sort((a: any, b: any) => a.id - b.id)
   return stars.map((s: any) => ({
-    startAge: s.id,
-    endAge: s.id + 9,
+    startAge: s.id, endAge: s.id + 9,
     chiName: D_CHI[s.pos - 1] ?? '',
     cung: findPalaceByPos(result, s.pos),
   }))
@@ -89,8 +90,7 @@ function buildChartData(result: LaSoResult, form: FormData, daiHan: any[], tieuH
       name: form.name || 'Không tên',
       gender: form.gender === 'male' ? 'Nam' : 'Nữ',
       year: form.year, month: form.month, day: form.day,
-      isLunar: form.isLunar,
-      gioIndex: form.gioIndex,
+      isLunar: form.isLunar, gioIndex: form.gioIndex,
     },
     info: {
       nam: result.Info.Nam, gio: result.Info.Gio,
@@ -104,8 +104,7 @@ function buildChartData(result: LaSoResult, form: FormData, daiHan: any[], tieuH
       canCung: T_CAN[c.CanCung] ?? '',
       isLife: c.Name === 'Mệnh', isBody: c.Than === 1,
       trangSinh: c.TrangSinh, tuan: c.Tuan === 1, triet: c.Triet === 1,
-      locNhap: c.LocNhap, quyenNhap: c.QuyenNhap,
-      khoaNhap: c.KhoaNhap, kyNhap: c.KyNhap,
+      locNhap: c.LocNhap, quyenNhap: c.QuyenNhap, khoaNhap: c.KhoaNhap, kyNhap: c.KyNhap,
       chinhTinh: (c.ChinhTinh ?? []).map((s: any) => ({ name: s.Name, status: s.Status })),
       saotot:    (c.Saotot   ?? []).map((s: any) => ({ name: s.Name, status: s.Status })),
       saoxau:    (c.Saoxau   ?? []).map((s: any) => ({ name: s.Name })),
@@ -139,7 +138,7 @@ function buildChartData(result: LaSoResult, form: FormData, daiHan: any[], tieuH
   }
 }
 
-// ── Simple markdown renderer ────────────────────────────────────────────────
+// ── Markdown renderer ───────────────────────────────────────────────────────
 function MdText({ text }: { text: string }) {
   const lines = text.split('\n')
   const els: React.ReactNode[] = []
@@ -149,9 +148,7 @@ function MdText({ text }: { text: string }) {
     if (listBuf.length) {
       els.push(
         <ul key={`ul-${key}`} className="md-ul">
-          {listBuf.map((li, i) => (
-            <li key={i} dangerouslySetInnerHTML={{ __html: bold(li) }} />
-          ))}
+          {listBuf.map((li, i) => <li key={i} dangerouslySetInnerHTML={{ __html: bold(li) }} />)}
         </ul>
       )
       listBuf = []
@@ -160,24 +157,13 @@ function MdText({ text }: { text: string }) {
 
   lines.forEach((line, i) => {
     const t = line.trim()
-    if (t.startsWith('## ')) {
-      flushList(i)
-      els.push(<h2 key={i} className="md-h2">{t.slice(3)}</h2>)
-    } else if (t.startsWith('# ')) {
-      flushList(i)
-      els.push(<h1 key={i} className="md-h1">{t.slice(2)}</h1>)
-    } else if (t.startsWith('- ') || t.startsWith('• ')) {
-      listBuf.push(t.slice(2))
-    } else if (t === '') {
-      flushList(i)
-      els.push(<div key={i} className="md-gap" />)
-    } else {
-      flushList(i)
-      els.push(<p key={i} dangerouslySetInnerHTML={{ __html: bold(t) }} />)
-    }
+    if (t.startsWith('## ')) { flushList(i); els.push(<h2 key={i} className="md-h2">{t.slice(3)}</h2>) }
+    else if (t.startsWith('# ')) { flushList(i); els.push(<h1 key={i} className="md-h1">{t.slice(2)}</h1>) }
+    else if (t.startsWith('- ') || t.startsWith('• ')) { listBuf.push(t.slice(2)) }
+    else if (t === '') { flushList(i); els.push(<div key={i} className="md-gap" />) }
+    else { flushList(i); els.push(<p key={i} dangerouslySetInnerHTML={{ __html: bold(t) }} />) }
   })
   flushList(lines.length)
-
   return <div className="md-body">{els}</div>
 }
 
@@ -185,7 +171,45 @@ function bold(s: string): string {
   return s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
 }
 
-// ── AI Interpretation Tab ──────────────────────────────────────────────────
+// ── Star Detail Modal ───────────────────────────────────────────────────────
+function StarModal({ star, onClose }: { star: SelectedStar; onClose: () => void }) {
+  const info = STAR_INFO[star.name]
+  const h = star.hanh ? HANH[star.hanh] : null
+  const st = star.status && STATUS_LABEL[star.status] ? STATUS_LABEL[star.status] : null
+  const isMieu = star.status && ['M','V','Đ'].includes(star.status)
+  const isHam  = star.status && star.status === 'H'
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="star-modal" onClick={e => e.stopPropagation()}>
+        <div className="star-modal-header">
+          <div>
+            <div className="star-modal-name" style={h ? { color: h.color } : undefined}>{star.name}</div>
+            <div className="star-modal-meta">
+              {h && <span style={{ color: h.color }}>● {h.name}</span>}
+              {st && <span style={{ color: st.color }}>· {st.label}</span>}
+            </div>
+          </div>
+          <button className="btn-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="star-modal-body">
+          {info ? (
+            <>
+              <p className="sc-role">{info.role}</p>
+              <p className="sc-meaning">{info.meaning}</p>
+              {isMieu && info.mieuEffect && <p className="sc-effect good">✦ {info.mieuEffect}</p>}
+              {isHam  && info.hamEffect  && <p className="sc-effect bad">⚠ {info.hamEffect}</p>}
+            </>
+          ) : (
+            <p className="panel-desc">Chưa có thông tin chi tiết cho sao này trong cơ sở dữ liệu.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── AI Interpretation Tab ───────────────────────────────────────────────────
 function InterpretTab({ result, form, daiHan, tieuHan }: {
   result: LaSoResult; form: FormData; daiHan: any[]; tieuHan: any[]
 }) {
@@ -195,10 +219,7 @@ function InterpretTab({ result, form, daiHan, tieuHan }: {
   const [done, setDone] = useState(false)
 
   async function startAnalysis() {
-    setLoading(true)
-    setDone(false)
-    setText('')
-    setError('')
+    setLoading(true); setDone(false); setText(''); setError('')
     const chartData = buildChartData(result, form, daiHan, tieuHan)
     try {
       const res = await fetch('/api/interpret', {
@@ -238,18 +259,16 @@ function InterpretTab({ result, form, daiHan, tieuHan }: {
             tính cách, sự nghiệp, tài chính, tình duyên, sức khỏe,
             đại hạn hiện tại, tiểu hạn năm nay và lời khuyên thiết thực.
           </p>
-          <button className="btn-analyze" onClick={startAnalysis}>
-            ✨ Bắt đầu phân tích lá số
-          </button>
-          <p className="is-note">Thời gian: khoảng 30–60 giây · Phân tích dựa trên Claude Sonnet</p>
+          <button className="btn-analyze" onClick={startAnalysis}>✨ Bắt đầu phân tích lá số</button>
+          <p className="is-note">Thời gian: khoảng 30–60 giây · Phân tích dựa trên Claude AI</p>
         </div>
       )}
 
       {loading && !text && (
         <div className="interpret-loading">
-          <div className="spin">◌</div>
+          <div className="spin-container"><span className="spin-sym">☯</span></div>
           <p>Đang phân tích lá số tử vi...</p>
-          <p className="load-sub">Claude đang đọc các sao và tổng hợp kết quả</p>
+          <p className="load-sub">AI đang đọc các sao và tổng hợp kết quả</p>
         </div>
       )}
 
@@ -262,8 +281,7 @@ function InterpretTab({ result, form, daiHan, tieuHan }: {
 
       {error && (
         <div className="interpret-error">
-          <strong>Lỗi:</strong> {error}
-          <br />
+          <strong>Lỗi:</strong> {error}<br />
           {error.includes('ANTHROPIC_API_KEY') && (
             <span>Vui lòng thêm <code>ANTHROPIC_API_KEY</code> vào Environment Variables trên Netlify.</span>
           )}
@@ -279,19 +297,19 @@ function InterpretTab({ result, form, daiHan, tieuHan }: {
   )
 }
 
-// ── Sub-components ─────────────────────────────────────────────────────────
+// ── StarBadge ───────────────────────────────────────────────────────────────
 function StarBadge({ name, status, hanh, isHoa, onClick }: {
-  name: string; status?: string; hanh?: number; isHoa?: boolean; onClick?: () => void
+  name: string; status?: string; hanh?: number; isHoa?: boolean
+  onClick: (e: React.MouseEvent) => void
 }) {
   const h = hanh ? HANH[hanh] : null
   const s = status && STATUS_LABEL[status] ? STATUS_LABEL[status] : null
-  const hasInfo = !!STAR_INFO[name]
   return (
     <span
-      className={`star-badge ${isHoa ? 'star-hoa' : ''} ${hasInfo ? 'star-clickable' : ''}`}
+      className={`star-badge star-clickable ${isHoa ? 'star-hoa' : ''}`}
       style={h ? { color: h.color } : undefined}
       title={STAR_INFO[name]?.meaning ?? name}
-      onClick={hasInfo ? onClick : undefined}
+      onClick={onClick}
     >
       {name}
       {s && <sup className="star-status" style={{ color: s.color }}>{s.label}</sup>}
@@ -299,18 +317,23 @@ function StarBadge({ name, status, hanh, isHoa, onClick }: {
   )
 }
 
-function PalaceCell({ cung, isSelected, onClick }: {
+// ── Palace Cell ─────────────────────────────────────────────────────────────
+function PalaceCell({ cung, isSelected, onClick, onStarClick }: {
   cung: any; isSelected: boolean; onClick: () => void
+  onStarClick: (name: string, status?: string, hanh?: number) => void
 }) {
   const chiIdx = D_CHI.indexOf(cung.TieuHan)
   const [row, col] = CHI_GRID[chiIdx] ?? [0, 0]
   const canName = T_CAN[cung.CanCung] ?? ''
   const isLife = cung.Name === 'Mệnh'
   const isBody = cung.Than === 1
-  const hoaStars = new Set<string>([
-    cung.LocNhap, cung.QuyenNhap, cung.KhoaNhap, cung.KyNhap
-  ].filter(Boolean))
+  const hoaStars = new Set<string>([cung.LocNhap, cung.QuyenNhap, cung.KhoaNhap, cung.KyNhap].filter(Boolean))
   const primaryElem = cung.ChinhTinh?.[0]?.NguHanh ?? 0
+
+  const starClick = (s: any) => (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onStarClick(s.Name, s.Status, s.NguHanh)
+  }
 
   return (
     <div
@@ -342,21 +365,21 @@ function PalaceCell({ cung, isSelected, onClick }: {
       {cung.ChinhTinh?.length > 0 && (
         <div className="pc-stars chinh">
           {cung.ChinhTinh.map((s: any, i: number) => (
-            <StarBadge key={i} name={s.Name} status={s.Status} hanh={s.NguHanh} isHoa={hoaStars.has(s.Name)} />
+            <StarBadge key={i} name={s.Name} status={s.Status} hanh={s.NguHanh} isHoa={hoaStars.has(s.Name)} onClick={starClick(s)} />
           ))}
         </div>
       )}
       {cung.Saotot?.length > 0 && (
         <div className="pc-stars tot">
           {cung.Saotot.map((s: any, i: number) => (
-            <StarBadge key={i} name={s.Name} status={s.Status} hanh={s.NguHanh} isHoa={hoaStars.has(s.Name)} />
+            <StarBadge key={i} name={s.Name} status={s.Status} hanh={s.NguHanh} isHoa={hoaStars.has(s.Name)} onClick={starClick(s)} />
           ))}
         </div>
       )}
       {cung.Saoxau?.length > 0 && (
         <div className="pc-stars xau">
           {cung.Saoxau.map((s: any, i: number) => (
-            <StarBadge key={i} name={s.Name} status={s.Status} hanh={s.NguHanh} isHoa={hoaStars.has(s.Name)} />
+            <StarBadge key={i} name={s.Name} status={s.Status} hanh={s.NguHanh} isHoa={hoaStars.has(s.Name)} onClick={starClick(s)} />
           ))}
         </div>
       )}
@@ -364,6 +387,7 @@ function PalaceCell({ cung, isSelected, onClick }: {
   )
 }
 
+// ── Chart Center ─────────────────────────────────────────────────────────────
 function ChartCenter({ info, form }: { info: any; form: FormData }) {
   return (
     <div className="chart-center">
@@ -371,28 +395,19 @@ function ChartCenter({ info, form }: { info: any; form: FormData }) {
       <div className="cc-name">{form.name || 'Vô danh'}</div>
       <div className="cc-gender">{form.gender === 'male' ? 'Nam' : 'Nữ'} · {info.AmDuong}</div>
       <hr className="cc-hr" />
-      {[
-        ['Năm sinh', info.Nam],
-        ['Giờ sinh', info.Gio],
-        ['Lịch', form.isLunar ? 'Âm lịch' : 'Dương lịch'],
-      ].map(([l, v]) => (
+      {[['Năm sinh', info.Nam], ['Giờ sinh', info.Gio], ['Lịch', form.isLunar ? 'Âm lịch' : 'Dương lịch']].map(([l, v]) => (
         <div className="cc-row" key={l}><span className="cc-l">{l}</span><span className="cc-v">{v}</span></div>
       ))}
       <hr className="cc-hr" />
-      {[
-        ['Cục', info.Cuc],
-        ['Chủ Mệnh', info.ChuMenh],
-        ['Chủ Thân', info.ChuThan],
-        ['Thân cư', info.ThanCu],
-      ].map(([l, v]) => (
+      {[['Cục', info.Cuc], ['Chủ Mệnh', info.ChuMenh], ['Chủ Thân', info.ChuThan], ['Thân cư', info.ThanCu]].map(([l, v]) => (
         <div className="cc-row" key={l}><span className="cc-l">{l}</span><span className={`cc-v ${l === 'Cục' ? 'cc-cuc' : ''}`}>{v}</span></div>
       ))}
-      <div className="cc-hint">Click vào cung để xem chi tiết</div>
+      <div className="cc-hint">Chạm vào cung hoặc sao để xem chú giải</div>
     </div>
   )
 }
 
-// ── Palace Detail Panel ────────────────────────────────────────────────────
+// ── Palace Detail Panel ─────────────────────────────────────────────────────
 function PalacePanel({ cung, onClose }: { cung: any; onClose: () => void }) {
   const info = PALACE_INFO[cung.Name]
   const tsInfo = TRANG_SINH_INFO[cung.TrangSinh] ?? ''
@@ -435,30 +450,10 @@ function PalacePanel({ cung, onClose }: { cung: any; onClose: () => void }) {
           <div className="panel-section">
             <h3>Tứ Hóa trong cung</h3>
             <div className="hoa-list">
-              {cung.LocNhap && (
-                <div className="hoa-item loc">
-                  <span className="hoa-title">Hóa Lộc · {cung.LocNhap}</span>
-                  <p>{STAR_INFO['Hóa lộc']?.meaning}</p>
-                </div>
-              )}
-              {cung.QuyenNhap && (
-                <div className="hoa-item quyen">
-                  <span className="hoa-title">Hóa Quyền · {cung.QuyenNhap}</span>
-                  <p>{STAR_INFO['Hóa quyền']?.meaning}</p>
-                </div>
-              )}
-              {cung.KhoaNhap && (
-                <div className="hoa-item khoa">
-                  <span className="hoa-title">Hóa Khoa · {cung.KhoaNhap}</span>
-                  <p>{STAR_INFO['Hóa khoa']?.meaning}</p>
-                </div>
-              )}
-              {cung.KyNhap && (
-                <div className="hoa-item ky">
-                  <span className="hoa-title">Hóa Kỵ · {cung.KyNhap}</span>
-                  <p>{STAR_INFO['Hóa kỵ']?.meaning}</p>
-                </div>
-              )}
+              {cung.LocNhap && <div className="hoa-item loc"><span className="hoa-title">Hóa Lộc · {cung.LocNhap}</span><p>{STAR_INFO['Hóa lộc']?.meaning}</p></div>}
+              {cung.QuyenNhap && <div className="hoa-item quyen"><span className="hoa-title">Hóa Quyền · {cung.QuyenNhap}</span><p>{STAR_INFO['Hóa quyền']?.meaning}</p></div>}
+              {cung.KhoaNhap && <div className="hoa-item khoa"><span className="hoa-title">Hóa Khoa · {cung.KhoaNhap}</span><p>{STAR_INFO['Hóa khoa']?.meaning}</p></div>}
+              {cung.KyNhap && <div className="hoa-item ky"><span className="hoa-title">Hóa Kỵ · {cung.KyNhap}</span><p>{STAR_INFO['Hóa kỵ']?.meaning}</p></div>}
             </div>
           </div>
         )}
@@ -475,7 +470,7 @@ function PalacePanel({ cung, onClose }: { cung: any; onClose: () => void }) {
           <h3>Các sao trong cung ({allStars.length} sao)</h3>
           <div className="star-list">
             {allStars.map((s: any, i: number) => {
-              const info = STAR_INFO[s.Name]
+              const si = STAR_INFO[s.Name]
               const h = HANH[s.NguHanh]
               const st = STATUS_LABEL[s.Status]
               return (
@@ -488,13 +483,13 @@ function PalacePanel({ cung, onClose }: { cung: any; onClose: () => void }) {
                       {st && <span className="sc-status" style={{ color: st.color }}>{st.label}</span>}
                     </div>
                   </div>
-                  {info && (
+                  {si && (
                     <>
-                      <p className="sc-role">{info.role}</p>
-                      <p className="sc-meaning">{info.meaning}</p>
+                      <p className="sc-role">{si.role}</p>
+                      <p className="sc-meaning">{si.meaning}</p>
                       {s.Status && s.Status !== 'B' && s.Status !== 'N' && (
                         <p className={`sc-effect ${['M','V','Đ'].includes(s.Status) ? 'good' : 'bad'}`}>
-                          {['M','V','Đ'].includes(s.Status) ? `✦ ${info.mieuEffect}` : `⚠ ${info.hamEffect}`}
+                          {['M','V','Đ'].includes(s.Status) ? `✦ ${si.mieuEffect}` : `⚠ ${si.hamEffect}`}
                         </p>
                       )}
                     </>
@@ -509,8 +504,12 @@ function PalacePanel({ cung, onClose }: { cung: any; onClose: () => void }) {
   )
 }
 
-// ── Đại Hạn Tab ────────────────────────────────────────────────────────────
-function DaiHanTab({ result, form }: { result: LaSoResult; form: FormData }) {
+// ── Đại Hạn Tab ─────────────────────────────────────────────────────────────
+function DaiHanTab({ result, form, onStarClick, onPalaceClick }: {
+  result: LaSoResult; form: FormData
+  onStarClick: (name: string, status?: string, hanh?: number) => void
+  onPalaceClick: (cung: any) => void
+}) {
   const list = getDaiHan(result)
   const danNap = getDanNap(result)
   const currentYear = new Date().getFullYear()
@@ -522,7 +521,6 @@ function DaiHanTab({ result, form }: { result: LaSoResult; form: FormData }) {
         <h2>Đại Hạn (Vận 10 năm)</h2>
         <p>Đại Hạn là chu kỳ 10 năm, mỗi chu kỳ ảnh hưởng bởi một cung khác nhau. Hướng vận: <b>{danNap}</b></p>
       </div>
-
       <div className="dh-grid">
         {list.map((dh: any, i: number) => {
           const startYear = birthYear + dh.startAge - 1
@@ -537,10 +535,11 @@ function DaiHanTab({ result, form }: { result: LaSoResult; form: FormData }) {
               </div>
               <div className="dh-age">Tuổi {dh.startAge}–{dh.endAge}</div>
               <div className="dh-year">({startYear}–{endYear})</div>
-
               {cung && (
                 <>
-                  <div className="dh-cung">Cung <b>{cung.Name}</b> · {dh.chiName}</div>
+                  <div className="dh-cung" onClick={() => onPalaceClick(cung)} title="Xem chi tiết cung">
+                    Cung <b className="dh-cung-name">{cung.Name}</b> · {dh.chiName}
+                  </div>
                   <div className="dh-trangsinh">{cung.TrangSinh}</div>
                   {(cung.LocNhap || cung.QuyenNhap || cung.KhoaNhap || cung.KyNhap) && (
                     <div className="dh-hoa">
@@ -552,15 +551,30 @@ function DaiHanTab({ result, form }: { result: LaSoResult; form: FormData }) {
                   )}
                   <div className="dh-stars">
                     {cung.ChinhTinh?.map((s: any, j: number) => (
-                      <span key={j} className="dh-star chinh" style={{ color: HANH[s.NguHanh]?.color }}>
+                      <span key={j} className="dh-star chinh star-clickable"
+                        style={{ color: HANH[s.NguHanh]?.color }}
+                        onClick={() => onStarClick(s.Name, s.Status, s.NguHanh)}
+                        title={STAR_INFO[s.Name]?.meaning ?? s.Name}
+                      >
                         {s.Name}{s.Status && s.Status !== 'N' ? <sup>{STATUS_LABEL[s.Status]?.label}</sup> : ''}
                       </span>
                     ))}
                     {cung.Saotot?.slice(0, 5).map((s: any, j: number) => (
-                      <span key={j} className="dh-star tot" style={{ color: HANH[s.NguHanh]?.color }}>{s.Name}</span>
+                      <span key={j} className="dh-star tot star-clickable"
+                        style={{ color: HANH[s.NguHanh]?.color }}
+                        onClick={() => onStarClick(s.Name, s.Status, s.NguHanh)}
+                        title={STAR_INFO[s.Name]?.meaning ?? s.Name}
+                      >
+                        {s.Name}
+                      </span>
                     ))}
                     {cung.Saoxau?.slice(0, 4).map((s: any, j: number) => (
-                      <span key={j} className="dh-star xau">{s.Name}</span>
+                      <span key={j} className="dh-star xau star-clickable"
+                        onClick={() => onStarClick(s.Name, undefined, s.NguHanh)}
+                        title={STAR_INFO[s.Name]?.meaning ?? s.Name}
+                      >
+                        {s.Name}
+                      </span>
                     ))}
                     {(cung.Saotot?.length + cung.Saoxau?.length) > 9 && (
                       <span className="dh-more">+{cung.Saotot.length + cung.Saoxau.length - 9} sao</span>
@@ -582,8 +596,12 @@ function DaiHanTab({ result, form }: { result: LaSoResult; form: FormData }) {
   )
 }
 
-// ── Tiểu Hạn Tab ───────────────────────────────────────────────────────────
-function TieuHanTab({ result, form }: { result: LaSoResult; form: FormData }) {
+// ── Tiểu Hạn Tab ────────────────────────────────────────────────────────────
+function TieuHanTab({ result, form, onStarClick, onPalaceClick }: {
+  result: LaSoResult; form: FormData
+  onStarClick: (name: string, status?: string, hanh?: number) => void
+  onPalaceClick: (cung: any) => void
+}) {
   const list = getTieuHan(result, form.year)
   const currentYear = new Date().getFullYear()
 
@@ -593,16 +611,11 @@ function TieuHanTab({ result, form }: { result: LaSoResult; form: FormData }) {
         <h2>Tiểu Hạn (Vận theo năm)</h2>
         <p>Tiểu Hạn xác định cung chủ vận của từng năm, lặp lại theo chu kỳ 12 năm.</p>
       </div>
-
       <div className="th-table-wrap">
         <table className="th-table">
           <thead>
             <tr>
-              <th>Năm Địa Chi</th>
-              <th>Cung vận</th>
-              <th>Tứ Hóa</th>
-              <th>Chính tinh</th>
-              <th>Năm dương lịch</th>
+              <th>Năm Địa Chi</th><th>Cung vận</th><th>Tứ Hóa</th><th>Chính tinh</th><th>Năm dương lịch</th>
             </tr>
           </thead>
           <tbody>
@@ -616,7 +629,9 @@ function TieuHanTab({ result, form }: { result: LaSoResult; form: FormData }) {
                     {isCurrent && <span className="th-now">▶ Năm nay</span>}
                   </td>
                   <td>
-                    <b>{cung?.Name ?? '?'}</b>
+                    <b className="th-cung-name" onClick={() => cung && onPalaceClick(cung)} title="Xem chi tiết cung">
+                      {cung?.Name ?? '?'}
+                    </b>
                     <span className="th-chi"> · {th.chiName}</span>
                     {cung?.Than === 1 && <span className="tag than ml">THÂN</span>}
                   </td>
@@ -629,7 +644,13 @@ function TieuHanTab({ result, form }: { result: LaSoResult; form: FormData }) {
                   <td>
                     <div className="th-stars">
                       {cung?.ChinhTinh?.map((s: any, j: number) => (
-                        <span key={j} className="th-star" style={{ color: HANH[s.NguHanh]?.color }}>{s.Name}</span>
+                        <span key={j} className="th-star star-clickable"
+                          style={{ color: HANH[s.NguHanh]?.color }}
+                          onClick={() => onStarClick(s.Name, s.Status, s.NguHanh)}
+                          title={STAR_INFO[s.Name]?.meaning ?? s.Name}
+                        >
+                          {s.Name}
+                        </span>
                       ))}
                     </div>
                   </td>
@@ -649,7 +670,7 @@ function TieuHanTab({ result, form }: { result: LaSoResult; form: FormData }) {
   )
 }
 
-// ── Main App ───────────────────────────────────────────────────────────────
+// ── Main App ────────────────────────────────────────────────────────────────
 export default function App() {
   const [form, setForm] = useState<FormData>({
     name: '', gender: 'male', isLunar: false,
@@ -660,6 +681,7 @@ export default function App() {
   const [showForm, setShowForm] = useState(true)
   const [tab, setTab] = useState<Tab>('laso')
   const [selectedCung, setSelectedCung] = useState<any>(null)
+  const [selectedStar, setSelectedStar] = useState<SelectedStar | null>(null)
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
     const { name, value, type } = e.target
@@ -672,29 +694,27 @@ export default function App() {
   }
 
   function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setError('')
+    e.preventDefault(); setError('')
     try {
       const laso = generateLaSo({
-        name: form.name || 'Vô danh',
-        gender: form.gender,
-        birth: {
-          isLunar: form.isLunar,
-          year: form.year, month: form.month, day: form.day,
-          hour: form.gioIndex * 2,
-        },
+        name: form.name || 'Vô danh', gender: form.gender,
+        birth: { isLunar: form.isLunar, year: form.year, month: form.month, day: form.day, hour: form.gioIndex * 2 },
       })
-      setResult(laso)
-      setShowForm(false)
-      setTab('laso')
-      setSelectedCung(null)
+      setResult(laso); setShowForm(false); setTab('laso')
+      setSelectedCung(null); setSelectedStar(null)
     } catch (err: any) {
       setError(err?.message || 'Có lỗi xảy ra khi tính lá số.')
     }
   }
 
   const handlePalaceClick = useCallback((cung: any) => {
+    setSelectedStar(null)
     setSelectedCung((prev: any) => prev?.Name === cung.Name && prev?.TieuHan === cung.TieuHan ? null : cung)
+  }, [])
+
+  const handleStarClick = useCallback((name: string, status?: string, hanh?: number) => {
+    setSelectedCung(null)
+    setSelectedStar({ name, status, hanh })
   }, [])
 
   return (
@@ -703,9 +723,7 @@ export default function App() {
         <div className="header-cosmos" />
         <div className="header-inner">
           <div className="sym-ring">
-            <div className="sym-ring-inner">
-              <span className="h-sym">☯</span>
-            </div>
+            <div className="sym-ring-inner"><span className="h-sym">☯</span></div>
           </div>
           <h1>Tử Vi Đẩu Số</h1>
           <p className="h-sub">Lá số tử vi · Tính theo phương pháp cổ truyền Việt Nam</p>
@@ -774,39 +792,32 @@ export default function App() {
 
         {result && (
           <section className="chart-section">
-            {/* Tabs */}
             <div className="tabs">
               {([['laso','🗺 Lá Số'],['daihan','📅 Đại Hạn'],['tieuHan','🔄 Tiểu Hạn'],['ai','🤖 Giải Thích AI']] as [Tab,string][]).map(([t,l]) => (
                 <button key={t} className={`tab-btn ${tab === t ? 'tab-active' : ''} ${t === 'ai' ? 'tab-ai' : ''}`} onClick={() => setTab(t)}>{l}</button>
               ))}
             </div>
 
-            {/* Lá Số Tab */}
             {tab === 'laso' && (
               <>
                 <div className="chart-grid">
                   {result.Cac_cung.map((cung: any, i: number) => (
-                    <PalaceCell
-                      key={i} cung={cung}
+                    <PalaceCell key={i} cung={cung}
                       isSelected={selectedCung?.TieuHan === cung.TieuHan}
                       onClick={() => handlePalaceClick(cung)}
+                      onStarClick={handleStarClick}
                     />
                   ))}
                   <ChartCenter info={result.Info} form={form} />
                 </div>
-
                 <div className="legend">
                   <div className="lg-group">
                     <b>Ngũ hành:</b>
-                    {Object.entries(HANH).map(([k,v]) => (
-                      <span key={k} style={{ color: v.color }}>● {v.name}</span>
-                    ))}
+                    {Object.entries(HANH).map(([k,v]) => <span key={k} style={{ color: v.color }}>● {v.name}</span>)}
                   </div>
                   <div className="lg-group">
                     <b>Trạng thái:</b>
-                    {Object.entries(STATUS_LABEL).map(([k,v]) => (
-                      <span key={k} style={{ color: v.color }}>{k}={v.label}</span>
-                    ))}
+                    {Object.entries(STATUS_LABEL).map(([k,v]) => <span key={k} style={{ color: v.color }}>{k}={v.label}</span>)}
                   </div>
                   <div className="lg-group">
                     <span className="hoa loc">Lộc</span>
@@ -820,26 +831,24 @@ export default function App() {
               </>
             )}
 
-            {tab === 'daihan' && <DaiHanTab result={result} form={form} />}
-            {tab === 'tieuHan' && <TieuHanTab result={result} form={form} />}
+            {tab === 'daihan' && (
+              <DaiHanTab result={result} form={form} onStarClick={handleStarClick} onPalaceClick={handlePalaceClick} />
+            )}
+            {tab === 'tieuHan' && (
+              <TieuHanTab result={result} form={form} onStarClick={handleStarClick} onPalaceClick={handlePalaceClick} />
+            )}
             {tab === 'ai' && (
-              <InterpretTab
-                result={result} form={form}
-                daiHan={getDaiHan(result)}
-                tieuHan={getTieuHan(result, form.year)}
-              />
+              <InterpretTab result={result} form={form} daiHan={getDaiHan(result)} tieuHan={getTieuHan(result, form.year)} />
             )}
           </section>
         )}
       </main>
 
-      {selectedCung && tab === 'laso' && (
-        <PalacePanel cung={selectedCung} onClose={() => setSelectedCung(null)} />
-      )}
+      {selectedCung && <PalacePanel cung={selectedCung} onClose={() => setSelectedCung(null)} />}
+      {selectedStar && <StarModal star={selectedStar} onClose={() => setSelectedStar(null)} />}
 
       <footer className="app-footer">
-        Tử Vi Đẩu Số · Powered by{' '}
-        <a href="https://github.com/implicit-invocation/tuvi-neo" target="_blank" rel="noreferrer">tuvi-neo</a>
+        Tử Vi Đẩu Số · Created by TVP
       </footer>
     </div>
   )
