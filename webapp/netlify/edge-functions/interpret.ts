@@ -1,9 +1,9 @@
-// Netlify Edge Function – Deno runtime, streams Claude interpretation
-// Supports automatic multi-turn continuation when max_tokens is hit.
+// Netlify Edge Function – Deno runtime, streams Gemini interpretation
+// Uses Google Gemini 2.0 Flash (cheap, fast, free tier available)
 
-const MODEL = 'claude-sonnet-4-6'
-const MAX_TOKENS = 8192          // maximum output tokens for this model
-const MAX_CONTINUATIONS = 3      // safety cap on follow-up turns
+const MODEL = 'gemini-2.0-flash'
+const MAX_OUTPUT_TOKENS = 8192
+const MAX_CONTINUATIONS = 3
 
 export default async function handler(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') {
@@ -21,10 +21,10 @@ export default async function handler(request: Request): Promise<Response> {
   }
 
   // @ts-ignore – Deno global
-  const apiKey: string | undefined = Deno.env.get('ANTHROPIC_API_KEY')
+  const apiKey: string | undefined = Deno.env.get('GEMINI_API_KEY')
   if (!apiKey) {
     return new Response(
-      JSON.stringify({ error: 'ANTHROPIC_API_KEY chưa được cấu hình trên Netlify.' }),
+      JSON.stringify({ error: 'GEMINI_API_KEY chưa được cấu hình trên Netlify.' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } },
     )
   }
@@ -40,27 +40,26 @@ export default async function handler(request: Request): Promise<Response> {
   const decoder = new TextDecoder()
   const encoder = new TextEncoder()
 
-  // Build initial conversation
-  const messages: { role: string; content: string }[] = [
-    { role: 'user', content: buildPrompt(chartData) },
+  // Gemini multi-turn conversation format
+  const contents: { role: string; parts: { text: string }[] }[] = [
+    { role: 'user', parts: [{ text: buildPrompt(chartData) }] },
   ]
 
   const stream = new ReadableStream({
     async start(controller) {
       try {
         for (let turn = 0; turn <= MAX_CONTINUATIONS; turn++) {
-          const res = await fetch('https://api.anthropic.com/v1/messages', {
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:streamGenerateContent?key=${apiKey}&alt=sse`
+
+          const res = await fetch(url, {
             method: 'POST',
-            headers: {
-              'x-api-key': apiKey,
-              'anthropic-version': '2023-06-01',
-              'content-type': 'application/json',
-            },
+            headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
-              model: MODEL,
-              max_tokens: MAX_TOKENS,
-              stream: true,
-              messages,
+              contents,
+              generationConfig: {
+                maxOutputTokens: MAX_OUTPUT_TOKENS,
+                temperature: 0.7,
+              },
             }),
           })
 
@@ -69,21 +68,21 @@ export default async function handler(request: Request): Promise<Response> {
             let userMsg = `\n\n[Lỗi API: ${errText}]`
             try {
               const errJson = JSON.parse(errText)
-              const msg: string = errJson?.error?.message ?? ''
-              if (msg.toLowerCase().includes('credit balance')) {
-                userMsg = '\n\n[Lỗi: Tài khoản API đã hết credits. Vui lòng liên hệ quản trị viên để nạp thêm credits tại console.anthropic.com.]'
-              } else if (msg.toLowerCase().includes('invalid x-api-key') || msg.toLowerCase().includes('authentication')) {
-                userMsg = '\n\n[Lỗi: API key không hợp lệ. Vui lòng kiểm tra cấu hình ANTHROPIC_API_KEY trên Netlify.]'
+              const errMsg: string = errJson?.error?.message ?? ''
+              if (errMsg.toLowerCase().includes('api key not valid') || errMsg.toLowerCase().includes('api_key_invalid')) {
+                userMsg = '\n\n[Lỗi: GEMINI_API_KEY không hợp lệ. Vui lòng kiểm tra lại cấu hình trên Netlify.]'
+              } else if (errMsg.toLowerCase().includes('quota') || errMsg.toLowerCase().includes('rate limit')) {
+                userMsg = '\n\n[Lỗi: Đã vượt quá giới hạn API. Vui lòng thử lại sau vài phút.]'
               }
-            } catch { /* keep original errText */ }
+            } catch { /* keep original */ }
             controller.enqueue(encoder.encode(userMsg))
             break
           }
 
-          // Stream this turn's SSE, collecting text and stop_reason
+          // Stream SSE response, collect text and finishReason
           let buf = ''
           let turnText = ''
-          let stopReason = ''
+          let finishReason = ''
           const reader = res.body.getReader()
 
           try {
@@ -100,15 +99,14 @@ export default async function handler(request: Request): Promise<Response> {
                 if (!data || data === '[DONE]') continue
                 try {
                   const json = JSON.parse(data)
-                  if (
-                    json.type === 'content_block_delta' &&
-                    json.delta?.type === 'text_delta' &&
-                    json.delta.text
-                  ) {
-                    turnText += json.delta.text
-                    controller.enqueue(encoder.encode(json.delta.text))
-                  } else if (json.type === 'message_delta' && json.delta?.stop_reason) {
-                    stopReason = json.delta.stop_reason
+                  const candidate = json?.candidates?.[0]
+                  const text: string = candidate?.content?.parts?.[0]?.text ?? ''
+                  if (text) {
+                    turnText += text
+                    controller.enqueue(encoder.encode(text))
+                  }
+                  if (candidate?.finishReason) {
+                    finishReason = candidate.finishReason
                   }
                 } catch { /* ignore malformed SSE lines */ }
               }
@@ -117,15 +115,15 @@ export default async function handler(request: Request): Promise<Response> {
             reader.releaseLock()
           }
 
-          // If model finished naturally, we're done
-          if (stopReason !== 'max_tokens') break
+          // STOP = finished naturally
+          if (finishReason !== 'MAX_TOKENS') break
 
-          // Model was cut off — add this turn to history and ask to continue
+          // Model was cut off — continue conversation
           if (turn < MAX_CONTINUATIONS) {
-            messages.push({ role: 'assistant', content: turnText })
-            messages.push({
+            contents.push({ role: 'model', parts: [{ text: turnText }] })
+            contents.push({
               role: 'user',
-              content: 'Hãy tiếp tục viết phần còn lại của bài phân tích từ chỗ vừa dừng lại. Không lặp lại nội dung đã viết.',
+              parts: [{ text: 'Hãy tiếp tục viết phần còn lại của bài phân tích từ chỗ vừa dừng lại. Không lặp lại nội dung đã viết.' }],
             })
           }
         }
