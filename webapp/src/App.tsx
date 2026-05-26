@@ -157,8 +157,11 @@ function buildChartData(result: LaSoResult, form: FormData, daiHan: any[], tieuH
     tieuHan: tieuHan.map(th => ({
       yearChi: th.yearChi, chiName: th.chiName,
       cungName: th.cung?.Name ?? '', years: th.years,
-      locNhap: th.cung?.LocNhap, kyNhap: th.cung?.KyNhap,
+      locNhap: th.cung?.LocNhap, quyenNhap: th.cung?.QuyenNhap,
+      khoaNhap: th.cung?.KhoaNhap, kyNhap: th.cung?.KyNhap,
       chinhTinh: (th.cung?.ChinhTinh ?? []).map((s: any) => s.Name),
+      saotot: (th.cung?.Saotot ?? []).slice(0, 6).map((s: any) => s.Name),
+      saoxau: (th.cung?.Saoxau ?? []).slice(0, 4).map((s: any) => s.Name),
     })),
     currentYear,
     currentDH: currentDH ? {
