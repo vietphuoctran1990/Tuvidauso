@@ -1,4 +1,10 @@
 // Netlify Edge Function – Deno runtime, streams Claude interpretation
+// Supports automatic multi-turn continuation when max_tokens is hit.
+
+const MODEL = 'claude-sonnet-4-6'
+const MAX_TOKENS = 8192          // maximum output tokens for this model
+const MAX_CONTINUATIONS = 3      // safety cap on follow-up turns
+
 export default async function handler(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') {
     return new Response(null, {
@@ -17,10 +23,10 @@ export default async function handler(request: Request): Promise<Response> {
   // @ts-ignore – Deno global
   const apiKey: string | undefined = Deno.env.get('ANTHROPIC_API_KEY')
   if (!apiKey) {
-    return new Response(JSON.stringify({ error: 'ANTHROPIC_API_KEY chưa được cấu hình trên Netlify.' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    })
+    return new Response(
+      JSON.stringify({ error: 'ANTHROPIC_API_KEY chưa được cấu hình trên Netlify.' }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } },
+    )
   }
 
   let chartData: any
@@ -31,56 +37,86 @@ export default async function handler(request: Request): Promise<Response> {
     return new Response('Invalid JSON', { status: 400 })
   }
 
-  const prompt = buildPrompt(chartData)
-
-  const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 5000,
-      stream: true,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  })
-
-  if (!anthropicRes.ok || !anthropicRes.body) {
-    const errText = await anthropicRes.text()
-    return new Response(JSON.stringify({ error: errText }), {
-      status: anthropicRes.status,
-      headers: { 'Content-Type': 'application/json' },
-    })
-  }
-
-  // Parse SSE → plain text stream
   const decoder = new TextDecoder()
   const encoder = new TextEncoder()
-  let buf = ''
+
+  // Build initial conversation
+  const messages: { role: string; content: string }[] = [
+    { role: 'user', content: buildPrompt(chartData) },
+  ]
 
   const stream = new ReadableStream({
     async start(controller) {
-      const reader = anthropicRes.body!.getReader()
       try {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          buf += decoder.decode(value, { stream: true })
-          const lines = buf.split('\n')
-          buf = lines.pop() ?? ''
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue
-            const data = line.slice(6).trim()
-            if (!data || data === '[DONE]') continue
-            try {
-              const json = JSON.parse(data)
-              if (json.type === 'content_block_delta' && json.delta?.type === 'text_delta' && json.delta.text) {
-                controller.enqueue(encoder.encode(json.delta.text))
+        for (let turn = 0; turn <= MAX_CONTINUATIONS; turn++) {
+          const res = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: MODEL,
+              max_tokens: MAX_TOKENS,
+              stream: true,
+              messages,
+            }),
+          })
+
+          if (!res.ok || !res.body) {
+            const errText = await res.text()
+            controller.enqueue(encoder.encode(`\n\n[Lỗi API: ${errText}]`))
+            break
+          }
+
+          // Stream this turn's SSE, collecting text and stop_reason
+          let buf = ''
+          let turnText = ''
+          let stopReason = ''
+          const reader = res.body.getReader()
+
+          try {
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+              buf += decoder.decode(value, { stream: true })
+              const lines = buf.split('\n')
+              buf = lines.pop() ?? ''
+
+              for (const line of lines) {
+                if (!line.startsWith('data: ')) continue
+                const data = line.slice(6).trim()
+                if (!data || data === '[DONE]') continue
+                try {
+                  const json = JSON.parse(data)
+                  if (
+                    json.type === 'content_block_delta' &&
+                    json.delta?.type === 'text_delta' &&
+                    json.delta.text
+                  ) {
+                    turnText += json.delta.text
+                    controller.enqueue(encoder.encode(json.delta.text))
+                  } else if (json.type === 'message_delta' && json.delta?.stop_reason) {
+                    stopReason = json.delta.stop_reason
+                  }
+                } catch { /* ignore malformed SSE lines */ }
               }
-            } catch { /* ignore */ }
+            }
+          } finally {
+            reader.releaseLock()
+          }
+
+          // If model finished naturally, we're done
+          if (stopReason !== 'max_tokens') break
+
+          // Model was cut off — add this turn to history and ask to continue
+          if (turn < MAX_CONTINUATIONS) {
+            messages.push({ role: 'assistant', content: turnText })
+            messages.push({
+              role: 'user',
+              content: 'Hãy tiếp tục viết phần còn lại của bài phân tích từ chỗ vừa dừng lại. Không lặp lại nội dung đã viết.',
+            })
           }
         }
       } finally {
@@ -111,7 +147,7 @@ function buildPrompt(d: any): string {
       const tot = p.saotot.map((s: any) => s.name).join(', ')
       const xau = p.saoxau.map((s: any) => s.name).join(', ')
       const hoa = [
-        p.locNhap  && `HóaLộc(${p.locNhap})`,
+        p.locNhap   && `HóaLộc(${p.locNhap})`,
         p.quyenNhap && `HóaQuyền(${p.quyenNhap})`,
         p.khoaNhap  && `HóaKhoa(${p.khoaNhap})`,
         p.kyNhap    && `HóaKỵ(${p.kyNhap})`,
@@ -155,7 +191,7 @@ ${dhLines}
 ${thLines}
 
 ---
-Viết bài phân tích theo đúng cấu trúc này, KHÔNG bỏ sót mục nào, mỗi mục tối thiểu 4-6 câu cụ thể:
+Viết bài phân tích theo đúng cấu trúc này, KHÔNG bỏ sót mục nào, mỗi mục tối thiểu 3-5 câu cụ thể:
 
 ## 🌟 TỔNG QUAN LÁ SỐ
 (Nhận xét tổng thể: lá số mạnh hay yếu, điểm nổi bật nhất, vận mệnh tổng quát)
