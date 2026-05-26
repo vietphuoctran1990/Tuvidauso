@@ -253,6 +253,25 @@ function InterpretTab({ result, form, daiHan, tieuHan }: {
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  const [toast, setToast] = useState('')
+
+  function showToast(msg: string) {
+    setToast(msg)
+    setTimeout(() => setToast(''), 2500)
+  }
+
+  async function handleShare() {
+    const title = `Lá số Tử Vi của ${form.name || 'bạn'}`
+    const shareText = text.replace(/##\s*/g, '\n\n').replace(/\*\*/g, '')
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, text: `${title}\n\n${shareText}` })
+      } catch { /* user cancelled */ }
+    } else {
+      await navigator.clipboard.writeText(`${title}\n\n${shareText}`)
+      showToast('Đã sao chép bài luận giải vào clipboard!')
+    }
+  }
 
   async function handleDownloadAnalysis() {
     const el = document.querySelector('.interpret-result') as HTMLElement
@@ -298,12 +317,12 @@ function InterpretTab({ result, form, daiHan, tieuHan }: {
           <div className="is-icon">🤖</div>
           <h2>Phân Tích Lá Số</h2>
           <p>
-            Claude AI sẽ phân tích toàn diện lá số của <strong>{form.name || 'bạn'}</strong> —
+            Gemini AI sẽ phân tích toàn diện lá số của <strong>{form.name || 'bạn'}</strong> —
             tính cách, sự nghiệp, tài chính, tình duyên, sức khỏe,
             đại hạn hiện tại, tiểu hạn năm nay và lời khuyên thiết thực.
           </p>
           <button className="btn-analyze" onClick={e => { createRipple(e); burstParticles(e, 16); startAnalysis() }}>✨ Bắt đầu phân tích lá số</button>
-          <p className="is-note">Thời gian: khoảng 30–60 giây · Phân tích dựa trên Claude AI</p>
+          <p className="is-note">Thời gian: khoảng 30–60 giây · Phân tích dựa trên Gemini AI</p>
         </div>
       )}
 
@@ -325,8 +344,8 @@ function InterpretTab({ result, form, daiHan, tieuHan }: {
       {error && (
         <div className="interpret-error">
           <strong>Lỗi:</strong> {error}<br />
-          {error.includes('ANTHROPIC_API_KEY') && (
-            <span>Vui lòng thêm <code>ANTHROPIC_API_KEY</code> vào Environment Variables trên Netlify.</span>
+          {error.includes('GEMINI_API_KEY') && (
+            <span>Vui lòng thêm <code>GEMINI_API_KEY</code> vào Environment Variables trên Netlify.</span>
           )}
         </div>
       )}
@@ -335,12 +354,19 @@ function InterpretTab({ result, form, daiHan, tieuHan }: {
         <div className="interpret-actions">
           <button className="btn-reanalyze" onClick={e => { createRipple(e); startAnalysis() }}>🔄 Phân tích lại</button>
           {done && (
-            <button className="btn-export" onClick={e => { createRipple(e); handleDownloadAnalysis() }} disabled={downloading}>
-              {downloading ? '⏳ Đang tạo PDF...' : '📄 Tải PDF phân tích'}
-            </button>
+            <>
+              <button className="btn-share" onClick={e => { createRipple(e); handleShare() }}>
+                🔗 Chia sẻ
+              </button>
+              <button className="btn-export" onClick={e => { createRipple(e); handleDownloadAnalysis() }} disabled={downloading}>
+                {downloading ? '⏳ Đang tạo PDF...' : '📄 Tải PDF phân tích'}
+              </button>
+            </>
           )}
         </div>
       )}
+
+      {toast && <div className="share-toast">{toast}</div>}
     </div>
   )
 }
