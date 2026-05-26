@@ -253,7 +253,7 @@ function InterpretTab({ result, form, daiHan, tieuHan }: {
       {!text && !loading && !error && (
         <div className="interpret-start">
           <div className="is-icon">🤖</div>
-          <h2>Giải Thích AI</h2>
+          <h2>Phân Tích Lá Số</h2>
           <p>
             Claude AI sẽ phân tích toàn diện lá số của <strong>{form.name || 'bạn'}</strong> —
             tính cách, sự nghiệp, tài chính, tình duyên, sức khỏe,
@@ -793,7 +793,7 @@ export default function App() {
         {result && (
           <section className="chart-section">
             <div className="tabs">
-              {([['laso','🗺 Lá Số'],['daihan','📅 Đại Hạn'],['tieuHan','🔄 Tiểu Hạn'],['ai','🤖 Giải Thích AI']] as [Tab,string][]).map(([t,l]) => (
+              {([['laso','🗺 Lá Số'],['daihan','📅 Đại Hạn'],['tieuHan','🔄 Tiểu Hạn'],['ai','🤖 Phân tích lá số']] as [Tab,string][]).map(([t,l]) => (
                 <button key={t} className={`tab-btn ${tab === t ? 'tab-active' : ''} ${t === 'ai' ? 'tab-ai' : ''}`} onClick={() => setTab(t)}>{l}</button>
               ))}
             </div>
