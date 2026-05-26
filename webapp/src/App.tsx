@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { generateLaSo } from 'tuvi-neo'
 import type { LaSoResult } from 'tuvi-neo'
 import { STAR_INFO, PALACE_INFO, TRANG_SINH_INFO } from './starInfo'
-import { exportChartPDF, exportAnalysisPDF } from './pdfExport'
+import { exportChartPDF, exportAnalysisPrint } from './pdfExport'
 import './App.css'
 
 // ── Mystical interaction effects ────────────────────────────────────────────
@@ -255,7 +255,7 @@ function InterpretTab({ result, form, daiHan, tieuHan }: {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
-  const [downloading, setDownloading] = useState(false)
+
   const [toast, setToast] = useState('')
 
   function showToast(msg: string) {
@@ -276,11 +276,10 @@ function InterpretTab({ result, form, daiHan, tieuHan }: {
     }
   }
 
-  async function handleDownloadAnalysis() {
+  function handleDownloadAnalysis() {
     const el = document.querySelector('.interpret-result') as HTMLElement
     if (!el) return
-    setDownloading(true)
-    try { await exportAnalysisPDF(el, form.name) } finally { setDownloading(false) }
+    exportAnalysisPrint(el, form.name)
   }
 
   async function startAnalysis() {
@@ -361,8 +360,8 @@ function InterpretTab({ result, form, daiHan, tieuHan }: {
               <button className="btn-share" onClick={e => { createRipple(e); handleShare() }}>
                 🔗 Chia sẻ
               </button>
-              <button className="btn-export" onClick={e => { createRipple(e); handleDownloadAnalysis() }} disabled={downloading}>
-                {downloading ? '⏳ Đang tạo PDF...' : '📄 Tải PDF phân tích'}
+              <button className="btn-export" onClick={e => { createRipple(e); handleDownloadAnalysis() }}>
+                🖨️ In / Lưu PDF
               </button>
             </>
           )}
