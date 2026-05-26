@@ -60,8 +60,8 @@
   --grid-gap-clr:  rgba(140,100,10,.05);
   --th-head-bg:    rgba(139,92,246,.08);
 
-  --font-title:    'Cormorant Garamond', 'Georgia', serif;
-  --font-body:     'Be Vietnam Pro', 'Segoe UI', system-ui, sans-serif;
+  --font-title:    'Lora', 'Georgia', serif;
+  --font-body:     'Inter', 'Segoe UI', system-ui, sans-serif;
   --radius-sm:     8px;
   --radius-md:     14px;
   --radius-lg:     20px;
@@ -247,7 +247,7 @@ body {
 
 .app-header h1 {
   font-family: var(--font-title);
-  font-size: 38px; font-weight: 900; letter-spacing: 4px; text-transform: uppercase;
+  font-size: 34px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
   background: linear-gradient(135deg, #b8860b 0%, #7c3aed 40%, #9b59b6 70%, #b8860b 100%);
   background-size: 200% auto;
   -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
@@ -263,8 +263,8 @@ body {
 @keyframes titleShimmer { 0% { background-position: 0% center; } 100% { background-position: 200% center; } }
 
 .h-sub {
-  font-family: var(--font-title); font-size: 11px; font-weight: 400;
-  letter-spacing: 3px; color: var(--text-3); text-transform: uppercase;
+  font-family: var(--font-body); font-size: 11px; font-weight: 400;
+  letter-spacing: 2px; color: var(--text-3); text-transform: uppercase;
 }
 
 /* Theme toggle button */
@@ -576,7 +576,7 @@ body {
 }
 [data-theme="dark"] .chart-center::after { color: rgba(139,92,246,.04); }
 
-.cc-title { font-family: var(--font-title); font-size: 11px; font-weight: 700; letter-spacing: 4px; color: var(--gold); text-transform: uppercase; position: relative; z-index: 1; }
+.cc-title { font-family: var(--font-body); font-size: 11px; font-weight: 600; letter-spacing: 2px; color: var(--gold); text-transform: uppercase; position: relative; z-index: 1; }
 .cc-name  { font-family: var(--font-title); font-size: 17px; font-weight: 700; color: var(--text-1); letter-spacing: .5px; position: relative; z-index: 1; }
 .cc-gender{ font-size: 11px; color: var(--text-2); position: relative; z-index: 1; }
 .cc-hr    { width: 50%; border: none; border-top: 1px solid var(--border-gold); margin: 3px 0; opacity: .5; position: relative; z-index: 1; }
@@ -816,7 +816,7 @@ body {
 [data-theme="dark"] .is-icon { filter: drop-shadow(0 0 16px rgba(212,175,55,.6)); }
 
 .interpret-start h2 {
-  font-family: var(--font-title); font-size: 22px; font-weight: 700; letter-spacing: 3px;
+  font-family: var(--font-title); font-size: 22px; font-weight: 700; letter-spacing: 1px;
   background: linear-gradient(135deg, var(--gold), var(--purple));
   -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
   margin-bottom: 12px;
