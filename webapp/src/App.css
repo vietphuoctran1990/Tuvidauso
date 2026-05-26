@@ -952,6 +952,29 @@ body {
 [data-theme="dark"] .btn-export:hover:not(:disabled) { box-shadow: 0 0 14px rgba(74,222,128,.2); }
 .btn-export:disabled { opacity: .5; cursor: not-allowed; }
 
+.btn-share {
+  padding: 8px 22px;
+  background: rgba(96,165,250,.07);
+  border: 1px solid rgba(96,165,250,.35);
+  border-radius: 20px; color: #60a5fa;
+  font-family: var(--font-title); font-size: 11px; font-weight: 600;
+  letter-spacing: 1px; cursor: pointer; transition: all .2s;
+  position: relative; overflow: hidden;
+}
+[data-theme="dark"] .btn-share { background: linear-gradient(135deg, rgba(30,58,138,.5), rgba(30,58,138,.3)); border-color: rgba(96,165,250,.4); color: #93c5fd; }
+.btn-share:hover { border-color: #60a5fa; box-shadow: 0 0 14px rgba(96,165,250,.2); transform: translateY(-1px); }
+
+.share-toast {
+  position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%);
+  background: rgba(30,30,40,.92); color: #fff;
+  padding: 10px 22px; border-radius: 24px; font-size: 13px;
+  backdrop-filter: blur(8px); box-shadow: 0 4px 20px rgba(0,0,0,.25);
+  animation: toastIn .25s ease, toastOut .3s ease 2.2s forwards;
+  z-index: 9999; pointer-events: none; white-space: nowrap;
+}
+@keyframes toastIn  { from { opacity: 0; transform: translateX(-50%) translateY(12px) } to { opacity: 1; transform: translateX(-50%) translateY(0) } }
+@keyframes toastOut { from { opacity: 1 } to { opacity: 0; transform: translateX(-50%) translateY(8px) } }
+
 /* ── Star Modal ─────────────────────────────────────────────── */
 .modal-overlay {
   position: fixed; inset: 0; background: var(--overlay-bg); z-index: 300;
