@@ -3,6 +3,7 @@ import { generateLaSo } from 'tuvi-neo'
 import type { LaSoResult } from 'tuvi-neo'
 import { STAR_INFO, PALACE_INFO, TRANG_SINH_INFO } from './starInfo'
 import { exportChartPDF, exportAnalysisPrint } from './pdfExport'
+import { generateLocalAnalysis } from './localAnalysis'
 import './App.css'
 
 // ── Mystical interaction effects ────────────────────────────────────────────
@@ -348,13 +349,12 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
   const [done, setDone] = useState(false)
   const [toast, setToast] = useState('')
   const [targetYear, setTargetYear] = useState<number>(initialYear ?? new Date().getFullYear())
+  const [mode, setMode] = useState<'ai' | 'local'>('ai')
 
-  // Sync initialYear when it changes from outside
   useEffect(() => {
     if (initialYear !== undefined) setTargetYear(initialYear)
   }, [initialYear])
 
-  // Compute progress info from streamed text
   const sectionMatches = text.match(/^## .+/gm) ?? []
   const sectionCount = sectionMatches.length
   const lastSection = sectionMatches.length > 0 ? sectionMatches[sectionMatches.length - 1].replace(/^## /, '') : ''
@@ -368,9 +368,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
     const title = `Lá số Tử Vi của ${form.name || 'bạn'}`
     const shareText = text.replace(/##\s*/g, '\n\n').replace(/\*\*/g, '')
     if (navigator.share) {
-      try {
-        await navigator.share({ title, text: `${title}\n\n${shareText}` })
-      } catch { /* user cancelled */ }
+      try { await navigator.share({ title, text: `${title}\n\n${shareText}` }) } catch { /* cancelled */ }
     } else {
       await navigator.clipboard.writeText(`${title}\n\n${shareText}`)
       showToast('Đã sao chép bài luận giải vào clipboard!')
@@ -383,7 +381,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
     exportAnalysisPrint(el, form.name)
   }
 
-  async function startAnalysis() {
+  async function startAiAnalysis() {
     setLoading(true); setDone(false); setText(''); setError('')
     const chartData = buildChartData(result, form, daiHan, tieuHan, targetYear)
     try {
@@ -413,6 +411,25 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
     }
   }
 
+  function startLocalAnalysis() {
+    setLoading(true); setDone(false); setText(''); setError('')
+    try {
+      const chartData = buildChartData(result, form, daiHan, tieuHan, targetYear)
+      const md = generateLocalAnalysis(chartData as any, targetYear)
+      setText(md)
+      setDone(true)
+    } catch (e: any) {
+      setError(e.message || 'Lỗi khi phân tích.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function handleAnalyze() {
+    if (mode === 'local') startLocalAnalysis()
+    else startAiAnalysis()
+  }
+
   const yearOptions: number[] = []
   for (let y = 1950; y <= 2080; y++) yearOptions.push(y)
 
@@ -423,10 +440,30 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
           <div className="is-icon gemini-icon">✦</div>
           <h2>Phân Tích Lá Số</h2>
           <p>
-            Gemini AI sẽ phân tích toàn diện lá số của <strong>{form.name || 'bạn'}</strong> —
-            tính cách, sự nghiệp, tài chính, tình duyên, sức khỏe,
-            đại hạn hiện tại, tiểu hạn năm nay và lời khuyên thiết thực.
+            Chọn phương thức phân tích lá số của <strong>{form.name || 'bạn'}</strong> —
+            tính cách, sự nghiệp, tài chính, tình duyên, sức khỏe, đại hạn và tiểu hạn.
           </p>
+
+          {/* Mode selector */}
+          <div className="mode-selector">
+            <button
+              className={`mode-btn ${mode === 'ai' ? 'mode-active' : ''}`}
+              onClick={() => setMode('ai')}
+            >
+              <span className="mode-icon gemini-icon" style={{ fontSize: 20, display: 'inline-block' }}>✦</span>
+              <span className="mode-label">Gemini AI</span>
+              <span className="mode-desc">Phân tích sâu · Cần API key · ~45 giây</span>
+            </button>
+            <button
+              className={`mode-btn ${mode === 'local' ? 'mode-active mode-local-active' : ''}`}
+              onClick={() => setMode('local')}
+            >
+              <span className="mode-icon">⚡</span>
+              <span className="mode-label">Phân tích ngay</span>
+              <span className="mode-desc">Offline · Không cần API · Tức thì</span>
+            </button>
+          </div>
+
           <div className="year-picker-row">
             <label className="year-picker-label">Xem vận năm:</label>
             <select
@@ -441,16 +478,26 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
               {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
             </select>
           </div>
-          <button className="btn-analyze" onClick={e => { createRipple(e); burstParticles(e, 16); startAnalysis() }}>✦ Bắt đầu phân tích lá số</button>
-          <p className="is-note">Đang phân tích năm {targetYear} · Thời gian: khoảng 30–60 giây · Phân tích dựa trên Gemini AI</p>
+
+          <button
+            className={`btn-analyze ${mode === 'local' ? 'btn-analyze-local' : ''}`}
+            onClick={e => { createRipple(e); burstParticles(e, 16); handleAnalyze() }}
+          >
+            {mode === 'local' ? '⚡ Phân tích ngay (offline)' : '✦ Bắt đầu phân tích AI'}
+          </button>
+          <p className="is-note">
+            {mode === 'local'
+              ? `Phân tích năm ${targetYear} · Dựa trên luật Tử Vi cổ truyền · Không cần internet`
+              : `Phân tích năm ${targetYear} · Thời gian: ~30–60 giây · Powered by Gemini AI`}
+          </p>
         </div>
       )}
 
       {loading && !text && (
         <div className="interpret-loading">
           <div className="spin-container"><span className="spin-sym">☯</span></div>
-          <p>Đang phân tích lá số tử vi...</p>
-          <p className="load-sub">AI đang đọc các sao và tổng hợp kết quả</p>
+          <p>{mode === 'local' ? 'Đang phân tích lá số...' : 'Đang phân tích lá số tử vi...'}</p>
+          <p className="load-sub">{mode === 'local' ? 'Đang luận giải theo nguyên tắc cổ truyền' : 'AI đang đọc các sao và tổng hợp kết quả'}</p>
         </div>
       )}
 
@@ -462,7 +509,9 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
 
       {text && (
         <div className="interpret-result">
-          <div className="interpret-year-badge">Phân tích năm {targetYear}</div>
+          <div className={`interpret-year-badge ${mode === 'local' ? 'interpret-badge-local' : ''}`}>
+            {mode === 'local' ? '⚡ Phân tích offline' : '✦ Gemini AI'} · Năm {targetYear}
+          </div>
           <MdText text={text} />
           {loading && <span className="cursor-blink">▌</span>}
         </div>
@@ -472,22 +521,29 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
         <div className="interpret-error">
           <strong>Lỗi:</strong> {error}<br />
           {error.includes('GEMINI_API_KEY') && (
-            <span>Vui lòng thêm <code>GEMINI_API_KEY</code> vào Environment Variables trên Netlify.</span>
+            <>
+              <span>Vui lòng thêm <code>GEMINI_API_KEY</code> vào Environment Variables trên Netlify.</span>
+              <br />
+              <button className="btn-fallback-local" onClick={e => { createRipple(e); setMode('local'); setError(''); startLocalAnalysis() }}>
+                ⚡ Dùng phân tích offline thay thế
+              </button>
+            </>
           )}
         </div>
       )}
 
       {(done || error) && (
         <div className="interpret-actions">
-          <button className="btn-reanalyze" onClick={e => { createRipple(e); startAnalysis() }}>🔄 Phân tích lại</button>
-          {done && (
+          <button className="btn-reanalyze" onClick={e => { createRipple(e); handleAnalyze() }}>🔄 Phân tích lại</button>
+          {done && error === '' && (
             <>
-              <button className="btn-share" onClick={e => { createRipple(e); handleShare() }}>
-                🔗 Chia sẻ
-              </button>
-              <button className="btn-export" onClick={e => { createRipple(e); handleDownloadAnalysis() }}>
-                🖨️ In / Lưu PDF
-              </button>
+              <button className="btn-share" onClick={e => { createRipple(e); handleShare() }}>🔗 Chia sẻ</button>
+              <button className="btn-export" onClick={e => { createRipple(e); handleDownloadAnalysis() }}>🖨️ In / Lưu PDF</button>
+              {mode === 'ai' && (
+                <button className="btn-switch-mode" onClick={e => { createRipple(e); setMode('local'); setText(''); setDone(false) }}>
+                  ⚡ Xem bản offline
+                </button>
+              )}
             </>
           )}
         </div>
