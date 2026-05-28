@@ -3,6 +3,7 @@ import { generateLaSo } from 'tuvi-neo'
 import type { LaSoResult } from 'tuvi-neo'
 import { STAR_INFO, PALACE_INFO, TRANG_SINH_INFO } from './starInfo'
 import { exportChartPDF, exportAnalysisPrint } from './pdfExport'
+
 import './App.css'
 
 // ── Mystical interaction effects ────────────────────────────────────────────
@@ -348,13 +349,10 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
   const [done, setDone] = useState(false)
   const [toast, setToast] = useState('')
   const [targetYear, setTargetYear] = useState<number>(initialYear ?? new Date().getFullYear())
-
-  // Sync initialYear when it changes from outside
   useEffect(() => {
     if (initialYear !== undefined) setTargetYear(initialYear)
   }, [initialYear])
 
-  // Compute progress info from streamed text
   const sectionMatches = text.match(/^## .+/gm) ?? []
   const sectionCount = sectionMatches.length
   const lastSection = sectionMatches.length > 0 ? sectionMatches[sectionMatches.length - 1].replace(/^## /, '') : ''
@@ -368,9 +366,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
     const title = `Lá số Tử Vi của ${form.name || 'bạn'}`
     const shareText = text.replace(/##\s*/g, '\n\n').replace(/\*\*/g, '')
     if (navigator.share) {
-      try {
-        await navigator.share({ title, text: `${title}\n\n${shareText}` })
-      } catch { /* user cancelled */ }
+      try { await navigator.share({ title, text: `${title}\n\n${shareText}` }) } catch { /* cancelled */ }
     } else {
       await navigator.clipboard.writeText(`${title}\n\n${shareText}`)
       showToast('Đã sao chép bài luận giải vào clipboard!')
@@ -383,7 +379,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
     exportAnalysisPrint(el, form.name)
   }
 
-  async function startAnalysis() {
+  async function startAiAnalysis() {
     setLoading(true); setDone(false); setText(''); setError('')
     const chartData = buildChartData(result, form, daiHan, tieuHan, targetYear)
     try {
@@ -413,6 +409,10 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
     }
   }
 
+  function handleAnalyze() {
+    startAiAnalysis()
+  }
+
   const yearOptions: number[] = []
   for (let y = 1950; y <= 2080; y++) yearOptions.push(y)
 
@@ -423,10 +423,10 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
           <div className="is-icon gemini-icon">✦</div>
           <h2>Phân Tích Lá Số</h2>
           <p>
-            Gemini AI sẽ phân tích toàn diện lá số của <strong>{form.name || 'bạn'}</strong> —
-            tính cách, sự nghiệp, tài chính, tình duyên, sức khỏe,
-            đại hạn hiện tại, tiểu hạn năm nay và lời khuyên thiết thực.
+            Luận giải chuyên sâu lá số của <strong>{form.name || 'bạn'}</strong> —
+            tính cách, sự nghiệp, tài chính, tình duyên, sức khỏe, đại hạn và tiểu hạn.
           </p>
+
           <div className="year-picker-row">
             <label className="year-picker-label">Xem vận năm:</label>
             <select
@@ -441,8 +441,16 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
               {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
             </select>
           </div>
-          <button className="btn-analyze" onClick={e => { createRipple(e); burstParticles(e, 16); startAnalysis() }}>✦ Bắt đầu phân tích lá số</button>
-          <p className="is-note">Đang phân tích năm {targetYear} · Thời gian: khoảng 30–60 giây · Phân tích dựa trên Gemini AI</p>
+
+          <button
+            className="btn-analyze"
+            onClick={e => { createRipple(e); burstParticles(e, 16); handleAnalyze() }}
+          >
+            ✦ Bắt đầu phân tích AI
+          </button>
+          <p className="is-note">
+            Phân tích năm {targetYear} · Thời gian: ~10–20 giây · Powered by Groq AI (Llama 3.3)
+          </p>
         </div>
       )}
 
@@ -462,7 +470,9 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
 
       {text && (
         <div className="interpret-result">
-          <div className="interpret-year-badge">Phân tích năm {targetYear}</div>
+          <div className="interpret-year-badge">
+            ✦ Groq AI · Năm {targetYear}
+          </div>
           <MdText text={text} />
           {loading && <span className="cursor-blink">▌</span>}
         </div>
@@ -471,23 +481,19 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
       {error && (
         <div className="interpret-error">
           <strong>Lỗi:</strong> {error}<br />
-          {error.includes('GEMINI_API_KEY') && (
-            <span>Vui lòng thêm <code>GEMINI_API_KEY</code> vào Environment Variables trên Netlify.</span>
+          {error.includes('GROQ_API_KEY') && (
+            <span>Vui lòng thêm <code>GROQ_API_KEY</code> vào Environment Variables trên Netlify.</span>
           )}
         </div>
       )}
 
       {(done || error) && (
         <div className="interpret-actions">
-          <button className="btn-reanalyze" onClick={e => { createRipple(e); startAnalysis() }}>🔄 Phân tích lại</button>
-          {done && (
+          <button className="btn-reanalyze" onClick={e => { createRipple(e); handleAnalyze() }}>🔄 Phân tích lại</button>
+          {done && error === '' && (
             <>
-              <button className="btn-share" onClick={e => { createRipple(e); handleShare() }}>
-                🔗 Chia sẻ
-              </button>
-              <button className="btn-export" onClick={e => { createRipple(e); handleDownloadAnalysis() }}>
-                🖨️ In / Lưu PDF
-              </button>
+              <button className="btn-share" onClick={e => { createRipple(e); handleShare() }}>🔗 Chia sẻ</button>
+              <button className="btn-export" onClick={e => { createRipple(e); handleDownloadAnalysis() }}>🖨️ In / Lưu PDF</button>
             </>
           )}
         </div>
