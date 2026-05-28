@@ -1,9 +1,8 @@
-// Netlify Edge Function – Deno runtime, streams Gemini interpretation
-// Uses Google Gemini 3.5 Flash
+// Netlify Edge Function – Deno runtime, streams Groq interpretation
+// Uses Groq API (OpenAI-compatible) with Llama 3.3 70B
 
-const MODEL = 'gemini-3.5-flash'
-const MAX_OUTPUT_TOKENS = 8192
-const MAX_CONTINUATIONS = 3
+const MODEL = 'llama-3.3-70b-versatile'
+const MAX_TOKENS = 16384
 
 export default async function handler(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') {
@@ -21,10 +20,10 @@ export default async function handler(request: Request): Promise<Response> {
   }
 
   // @ts-ignore – Deno global
-  const apiKey: string | undefined = Deno.env.get('GEMINI_API_KEY')
+  const apiKey: string | undefined = Deno.env.get('GROQ_API_KEY')
   if (!apiKey) {
     return new Response(
-      JSON.stringify({ error: 'GEMINI_API_KEY chưa được cấu hình trên Netlify.' }),
+      JSON.stringify({ error: 'GROQ_API_KEY chưa được cấu hình trên Netlify.' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } },
     )
   }
@@ -40,95 +39,68 @@ export default async function handler(request: Request): Promise<Response> {
   const decoder = new TextDecoder()
   const encoder = new TextEncoder()
 
-  // Gemini multi-turn conversation format
-  const contents: { role: string; parts: { text: string }[] }[] = [
-    { role: 'user', parts: [{ text: buildPrompt(chartData) }] },
-  ]
-
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        for (let turn = 0; turn <= MAX_CONTINUATIONS; turn++) {
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:streamGenerateContent?key=${apiKey}&alt=sse`
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: MODEL,
+            messages: [
+              { role: 'system', content: SYSTEM_INSTRUCTION },
+              { role: 'user', content: buildPrompt(chartData) },
+            ],
+            max_tokens: MAX_TOKENS,
+            temperature: 0.75,
+            stream: true,
+          }),
+        })
 
-          const res = await fetch(url, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              systemInstruction: {
-                parts: [{ text: SYSTEM_INSTRUCTION }],
-              },
-              contents,
-              generationConfig: {
-                maxOutputTokens: MAX_OUTPUT_TOKENS,
-                temperature: 0.75,
-              },
-            }),
-          })
-
-          if (!res.ok || !res.body) {
-            const errText = await res.text()
-            let userMsg = `\n\n[Lỗi API: ${errText}]`
-            try {
-              const errJson = JSON.parse(errText)
-              const errMsg: string = errJson?.error?.message ?? ''
-              if (errMsg.toLowerCase().includes('api key not valid') || errMsg.toLowerCase().includes('api_key_invalid')) {
-                userMsg = '\n\n[Lỗi: GEMINI_API_KEY không hợp lệ. Vui lòng kiểm tra lại cấu hình trên Netlify.]'
-              } else if (errMsg.toLowerCase().includes('quota') || errMsg.toLowerCase().includes('rate limit')) {
-                userMsg = '\n\n[Lỗi: Đã vượt quá giới hạn API. Vui lòng thử lại sau vài phút.]'
-              }
-            } catch { /* keep original */ }
-            controller.enqueue(encoder.encode(userMsg))
-            break
-          }
-
-          // Stream SSE response, collect text and finishReason
-          let buf = ''
-          let turnText = ''
-          let finishReason = ''
-          const reader = res.body.getReader()
-
+        if (!res.ok || !res.body) {
+          const errText = await res.text()
+          let userMsg = `\n\n[Lỗi API: ${errText}]`
           try {
-            while (true) {
-              const { done, value } = await reader.read()
-              if (done) break
-              buf += decoder.decode(value, { stream: true })
-              const lines = buf.split('\n')
-              buf = lines.pop() ?? ''
-
-              for (const line of lines) {
-                if (!line.startsWith('data: ')) continue
-                const data = line.slice(6).trim()
-                if (!data || data === '[DONE]') continue
-                try {
-                  const json = JSON.parse(data)
-                  const candidate = json?.candidates?.[0]
-                  const text: string = candidate?.content?.parts?.[0]?.text ?? ''
-                  if (text) {
-                    turnText += text
-                    controller.enqueue(encoder.encode(text))
-                  }
-                  if (candidate?.finishReason) {
-                    finishReason = candidate.finishReason
-                  }
-                } catch { /* ignore malformed SSE lines */ }
-              }
+            const errJson = JSON.parse(errText)
+            const errMsg: string = errJson?.error?.message ?? ''
+            if (errMsg.toLowerCase().includes('invalid api key') || errMsg.toLowerCase().includes('auth')) {
+              userMsg = '\n\n[Lỗi: GROQ_API_KEY không hợp lệ. Vui lòng kiểm tra lại cấu hình trên Netlify.]'
+            } else if (errMsg.toLowerCase().includes('rate limit') || errMsg.toLowerCase().includes('quota')) {
+              userMsg = '\n\n[Lỗi: Đã vượt quá giới hạn API. Vui lòng thử lại sau vài phút.]'
             }
-          } finally {
-            reader.releaseLock()
-          }
+          } catch { /* keep original */ }
+          controller.enqueue(encoder.encode(userMsg))
+          controller.close()
+          return
+        }
 
-          // STOP = finished naturally
-          if (finishReason !== 'MAX_TOKENS') break
+        let buf = ''
+        const reader = res.body.getReader()
 
-          // Model was cut off — continue conversation
-          if (turn < MAX_CONTINUATIONS) {
-            contents.push({ role: 'model', parts: [{ text: turnText }] })
-            contents.push({
-              role: 'user',
-              parts: [{ text: 'Hãy tiếp tục viết phần còn lại của bài phân tích từ chỗ vừa dừng lại. Không lặp lại nội dung đã viết.' }],
-            })
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buf += decoder.decode(value, { stream: true })
+            const lines = buf.split('\n')
+            buf = lines.pop() ?? ''
+
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue
+              const data = line.slice(6).trim()
+              if (!data || data === '[DONE]') continue
+              try {
+                const json = JSON.parse(data)
+                const text: string = json?.choices?.[0]?.delta?.content ?? ''
+                if (text) controller.enqueue(encoder.encode(text))
+              } catch { /* ignore malformed SSE lines */ }
+            }
           }
+        } finally {
+          reader.releaseLock()
         }
       } finally {
         controller.close()

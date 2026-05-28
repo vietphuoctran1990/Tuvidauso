@@ -451,8 +451,8 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
               onClick={() => setMode('ai')}
             >
               <span className="mode-icon gemini-icon" style={{ fontSize: 20, display: 'inline-block' }}>✦</span>
-              <span className="mode-label">Gemini AI</span>
-              <span className="mode-desc">Phân tích sâu · Cần API key · ~45 giây</span>
+              <span className="mode-label">Groq AI</span>
+              <span className="mode-desc">Phân tích sâu · Cần API key · ~15 giây</span>
             </button>
             <button
               className={`mode-btn ${mode === 'local' ? 'mode-active mode-local-active' : ''}`}
@@ -488,7 +488,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
           <p className="is-note">
             {mode === 'local'
               ? `Phân tích năm ${targetYear} · Dựa trên luật Tử Vi cổ truyền · Không cần internet`
-              : `Phân tích năm ${targetYear} · Thời gian: ~30–60 giây · Powered by Gemini AI`}
+              : `Phân tích năm ${targetYear} · Thời gian: ~10–20 giây · Powered by Groq AI (Llama 3.3)`}
           </p>
         </div>
       )}
@@ -510,7 +510,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
       {text && (
         <div className="interpret-result">
           <div className={`interpret-year-badge ${mode === 'local' ? 'interpret-badge-local' : ''}`}>
-            {mode === 'local' ? '⚡ Phân tích offline' : '✦ Gemini AI'} · Năm {targetYear}
+            {mode === 'local' ? '⚡ Phân tích offline' : '✦ Groq AI'} · Năm {targetYear}
           </div>
           <MdText text={text} />
           {loading && <span className="cursor-blink">▌</span>}
@@ -520,9 +520,9 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
       {error && (
         <div className="interpret-error">
           <strong>Lỗi:</strong> {error}<br />
-          {error.includes('GEMINI_API_KEY') && (
+          {error.includes('GROQ_API_KEY') && (
             <>
-              <span>Vui lòng thêm <code>GEMINI_API_KEY</code> vào Environment Variables trên Netlify.</span>
+              <span>Vui lòng thêm <code>GROQ_API_KEY</code> vào Environment Variables trên Netlify.</span>
               <br />
               <button className="btn-fallback-local" onClick={e => { createRipple(e); setMode('local'); setError(''); startLocalAnalysis() }}>
                 ⚡ Dùng phân tích offline thay thế
