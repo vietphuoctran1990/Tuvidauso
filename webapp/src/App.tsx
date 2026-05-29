@@ -349,12 +349,13 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
   const [done, setDone] = useState(false)
   const [toast, setToast] = useState('')
   const [targetYear, setTargetYear] = useState<number>(initialYear ?? new Date().getFullYear())
+  const [provider, setProvider] = useState<'gemini' | 'groq'>('gemini')
   const [cooldown, setCooldown] = useState(0)
   useEffect(() => {
     if (initialYear !== undefined) setTargetYear(initialYear)
   }, [initialYear])
 
-  // Groq free-tier TPM resets on a rolling 60s window — block re-analysis until then
+  // Groq free-tier TPM resets on a rolling 60s window
   useEffect(() => {
     if (cooldown <= 0) return
     const id = setInterval(() => setCooldown(c => (c <= 1 ? 0 : c - 1)), 1000)
@@ -394,7 +395,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
       const res = await fetch('/api/interpret', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chartData }),
+        body: JSON.stringify({ chartData, provider }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }))
@@ -410,7 +411,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
         setText(prev => prev + decoder.decode(value))
       }
       setDone(true)
-      setCooldown(60)
+      if (provider === 'groq') setCooldown(60)
     } catch (e: any) {
       setError(e.message || 'Lỗi không xác định.')
     } finally {
@@ -432,10 +433,26 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
         <div className="interpret-start">
           <div className="is-icon gemini-icon">✦</div>
           <h2>Phân Tích Lá Số</h2>
-          <p>
-            Luận giải chuyên sâu lá số của <strong>{form.name || 'bạn'}</strong> —
-            tính cách, sự nghiệp, tài chính, tình duyên, sức khỏe, đại hạn và tiểu hạn.
-          </p>
+          <p>Luận giải lá số của <strong>{form.name || 'bạn'}</strong> — tính cách, sự nghiệp, tài chính, tình duyên, sức khỏe, đại hạn và tiểu hạn.</p>
+
+          <div className="provider-selector">
+            <button
+              className={`provider-btn${provider === 'gemini' ? ' provider-active provider-gemini-active' : ''}`}
+              onClick={() => { setProvider('gemini'); setCooldown(0) }}
+            >
+              <span className="provider-icon gemini-icon">✦</span>
+              <span className="provider-label">Gemini AI</span>
+              <span className="provider-desc">Chuyên sâu · 17 mục · ~20–30s</span>
+            </button>
+            <button
+              className={`provider-btn${provider === 'groq' ? ' provider-active provider-groq-active' : ''}`}
+              onClick={() => setProvider('groq')}
+            >
+              <span className="provider-icon">⚡</span>
+              <span className="provider-label">Groq AI</span>
+              <span className="provider-desc">Nhanh · Tiết kiệm quota · ~30–40s</span>
+            </button>
+          </div>
 
           <div className="year-picker-row">
             <label className="year-picker-label">Xem vận năm:</label>
@@ -453,13 +470,15 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
           </div>
 
           <button
-            className="btn-analyze"
+            className={`btn-analyze${provider === 'groq' ? ' btn-analyze-groq' : ''}`}
             onClick={e => { createRipple(e); burstParticles(e, 16); handleAnalyze() }}
           >
-            ✦ Bắt đầu phân tích AI
+            {provider === 'groq' ? '⚡ Phân tích nhanh' : '✦ Phân tích chuyên sâu'}
           </button>
           <p className="is-note">
-            Phân tích năm {targetYear} · Thời gian: ~20–40 giây · Gemini 2.5 Flash → Groq (dự phòng)
+            {provider === 'groq'
+              ? `Năm ${targetYear} · Groq Llama 3.3 · Tiết kiệm quota Gemini`
+              : `Năm ${targetYear} · Gemini 2.0 Flash · Phân tích chi tiết đầy đủ`}
           </p>
         </div>
       )}
@@ -468,7 +487,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
         <div className="interpret-loading">
           <div className="spin-container"><span className="spin-sym">☯</span></div>
           <p>Đang phân tích lá số tử vi...</p>
-          <p className="load-sub">AI đang đọc các sao và tổng hợp kết quả</p>
+          <p className="load-sub">{provider === 'groq' ? 'Groq đang xử lý (2 lượt: bản mệnh → vận hạn)' : 'Gemini đang đọc các sao và tổng hợp kết quả'}</p>
         </div>
       )}
 
@@ -480,8 +499,8 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
 
       {text && (
         <div className="interpret-result">
-          <div className="interpret-year-badge">
-            ✦ Tử Vi AI · Năm {targetYear}
+          <div className={`interpret-year-badge${provider === 'groq' ? ' badge-groq' : ''}`}>
+            {provider === 'groq' ? '⚡ Groq AI' : '✦ Gemini AI'} · Năm {targetYear}
           </div>
           <MdText text={text} />
           {loading && <span className="cursor-blink">▌</span>}
@@ -502,10 +521,16 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
           <button
             className="btn-reanalyze"
             disabled={cooldown > 0 || loading}
-            title={cooldown > 0 ? 'Chờ giới hạn API miễn phí reset' : ''}
+            title={cooldown > 0 ? 'Chờ giới hạn Groq TPM reset' : ''}
             onClick={e => { createRipple(e); handleAnalyze() }}
           >
             {cooldown > 0 ? `🔄 Phân tích lại (${cooldown}s)` : '🔄 Phân tích lại'}
+          </button>
+          <button
+            className={`btn-switch-provider${provider === 'groq' ? ' btn-switch-to-gemini' : ' btn-switch-to-groq'}`}
+            onClick={e => { createRipple(e); setProvider(p => p === 'gemini' ? 'groq' : 'gemini'); setCooldown(0); setText(''); setDone(false); setError('') }}
+          >
+            {provider === 'groq' ? '✦ Dùng Gemini' : '⚡ Dùng Groq'}
           </button>
           {done && error === '' && (
             <>

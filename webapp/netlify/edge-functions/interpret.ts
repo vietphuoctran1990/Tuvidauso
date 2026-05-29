@@ -43,33 +43,49 @@ export default async function handler(request: Request): Promise<Response> {
   }
 
   let chartData: any
+  let provider: 'gemini' | 'groq' | undefined
   try {
-    chartData = (await request.json()).chartData
+    const body = await request.json()
+    chartData = body.chartData
+    provider = body.provider
   } catch {
     return new Response('Invalid JSON', { status: 400 })
   }
 
   const encoder = new TextEncoder()
+  const chart = buildChartBlock(chartData)
 
   const stream = new ReadableStream({
     async start(controller) {
       const emit = (t: string) => controller.enqueue(encoder.encode(t))
       try {
-        // Try each Gemini key in order until one succeeds
-        for (let i = 0; i < geminiKeys.length; i++) {
-          const ok = await runGemini(geminiKeys[i], chartData, emit)
-          if (ok) return
-        }
-        if (geminiKeys.length > 0 && groqKey) {
-          emit('\n\n---\n\n_⚠️ Tất cả Gemini key tạm thời không khả dụng, chuyển sang Groq AI..._\n\n')
-        }
-        if (groqKey) {
-          const chart = buildChartBlock(chartData)
+        if (provider === 'groq') {
+          // Groq-only (nhanh)
+          if (!groqKey) { emit('[Lỗi: Chưa cấu hình GROQ_API_KEY trên Netlify.]'); return }
           await runGroqPass(groqKey, chart, PASS_1_SECTIONS, emit)
           emit('\n\n')
           await runGroqPass(groqKey, chart, PASS_2_SECTIONS, emit)
+        } else if (provider === 'gemini') {
+          // Gemini-only (chuyên sâu) — không fallback sang Groq
+          if (geminiKeys.length === 0) { emit('[Lỗi: Chưa cấu hình GEMINI_API_KEY trên Netlify.]'); return }
+          for (let i = 0; i < geminiKeys.length; i++) {
+            const ok = await runGemini(geminiKeys[i], chartData, emit)
+            if (ok) return
+          }
         } else {
-          emit('\n\n[Lỗi: GEMINI_API_KEY không hoạt động và không có GROQ_API_KEY để dự phòng.]')
+          // Auto-mode: Gemini → Groq fallback
+          for (let i = 0; i < geminiKeys.length; i++) {
+            const ok = await runGemini(geminiKeys[i], chartData, emit)
+            if (ok) return
+          }
+          if (groqKey) {
+            if (geminiKeys.length > 0) emit('\n\n---\n\n_⚠️ Gemini không khả dụng, chuyển sang Groq..._\n\n')
+            await runGroqPass(groqKey, chart, PASS_1_SECTIONS, emit)
+            emit('\n\n')
+            await runGroqPass(groqKey, chart, PASS_2_SECTIONS, emit)
+          } else {
+            emit('[Lỗi: Chưa cấu hình API key. Thêm GEMINI_API_KEY hoặc GROQ_API_KEY vào Netlify.]')
+          }
         }
       } catch (e: any) {
         emit(`\n\n[Lỗi: ${e?.message || 'không xác định'}]`)
