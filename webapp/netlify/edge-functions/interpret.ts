@@ -66,28 +66,40 @@ export default async function handler(request: Request): Promise<Response> {
           emit('\n\n')
           await runGroqPass(groqKey, chart, PASS_2_SECTIONS, emit)
         } else {
-          // Gemini mode (or auto) — fallback to Groq on quota/error
-          let geminiOk = false
+          // Gemini mode — try each key in order, fallback to Groq if all fail
           if (geminiKeys.length === 0 && !groqKey) {
             emit('[Lỗi: Chưa cấu hình API key. Thêm GEMINI_API_KEY hoặc GROQ_API_KEY vào Netlify.]')
             return
           }
+          let geminiOk = false
+          let allQuota = true
+          let anyInvalidKey = false
           for (let i = 0; i < geminiKeys.length; i++) {
             const result = await runGemini(geminiKeys[i], chartData, emit)
             if (result === 'ok') { geminiOk = true; break }
-            // 'quota' or 'error' → try next key silently
+            if (result !== 'quota') allQuota = false
+            if (result === 'invalid_key') anyInvalidKey = true
+            // any failure → silently try next key
           }
           if (!geminiOk) {
-            // All Gemini keys exhausted — fall back to Groq
             if (groqKey) {
+              // Fallback to Groq — only show message if Gemini keys were configured
               if (geminiKeys.length > 0) {
-                emit('_⚡ Gemini đã hết quota hôm nay, chuyển sang Groq AI..._\n\n')
+                const reason = allQuota
+                  ? 'Gemini đã hết quota hôm nay'
+                  : anyInvalidKey
+                    ? 'Một số Gemini key không hợp lệ'
+                    : 'Gemini tạm thời không khả dụng'
+                emit(`_⚡ ${reason}, chuyển sang Groq AI..._\n\n`)
               }
               await runGroqPass(groqKey, chart, PASS_1_SECTIONS, emit)
               emit('\n\n')
               await runGroqPass(groqKey, chart, PASS_2_SECTIONS, emit)
             } else {
-              emit('[Lỗi: Tất cả Gemini key đã hết quota hôm nay. Thêm GROQ_API_KEY để dự phòng hoặc dùng key Gemini khác.]')
+              const hint = anyInvalidKey
+                ? 'Kiểm tra lại Gemini API key trong Netlify Environment Variables.'
+                : 'Tất cả Gemini key đã hết quota. Thêm GROQ_API_KEY để dự phòng hoặc thêm Gemini key mới.'
+              emit(`[Lỗi: ${hint}]`)
             }
           }
         }
@@ -110,9 +122,12 @@ export default async function handler(request: Request): Promise<Response> {
 }
 
 // ─── Gemini streaming ────────────────────────────────────────────────────────
-// Returns 'ok' | 'quota' | 'error'
+// Returns 'ok' | 'quota' | 'invalid_key' | 'error'
+// All failures are silent — caller decides what to show after all keys tried.
 
-async function runGemini(apiKey: string, chartData: any, emit: (t: string) => void): Promise<'ok' | 'quota' | 'error'> {
+type GeminiResult = 'ok' | 'quota' | 'invalid_key' | 'error'
+
+async function runGemini(apiKey: string, chartData: any, emit: (t: string) => void): Promise<GeminiResult> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?key=${apiKey}&alt=sse`
   let res: Response
   try {
@@ -133,12 +148,13 @@ async function runGemini(apiKey: string, chartData: any, emit: (t: string) => vo
     const txt = await res.text().catch(() => '')
     const msg = (() => { try { return JSON.parse(txt)?.error?.message ?? txt } catch { return txt } })()
     const low = msg.toLowerCase()
-    // Quota/rate-limit: silent, try next key
     if (res.status === 429 || low.includes('quota') || low.includes('rate limit') || low.includes('spending cap')) {
       return 'quota'
     }
-    // Unexpected error: emit for visibility
-    emit(`\n_[Gemini ${res.status}: ${msg.slice(0, 150)}]_`)
+    if (res.status === 400 && (low.includes('api key not valid') || low.includes('api_key_invalid'))) {
+      return 'invalid_key'
+    }
+    // Any other error (5xx, network issue, etc.) — silent, try next key
     return 'error'
   }
 
