@@ -7,7 +7,7 @@
 // If the primary provider errors for any reason (rate limit, invalid key, network)
 // the stream transparently continues with the fallback provider.
 
-const GEMINI_MODEL = 'gemini-2.5-flash'
+const GEMINI_MODEL = 'gemini-2.0-flash'
 const GEMINI_MAX_TOKENS = 12000
 
 const GROQ_MODEL = 'llama-3.3-70b-versatile'
@@ -105,17 +105,15 @@ async function runGemini(apiKey: string, chartData: any, emit: (t: string) => vo
         generationConfig: { maxOutputTokens: GEMINI_MAX_TOKENS, temperature: 0.75 },
       }),
     })
-  } catch {
-    return false // network error → fall back
+  } catch (e: any) {
+    emit(`\n_[Gemini network error: ${e?.message}]_`)
+    return false
   }
 
   if (!res.ok || !res.body) {
     const txt = await res.text().catch(() => '')
-    const msg = (() => { try { return JSON.parse(txt)?.error?.message ?? '' } catch { return '' } })()
-    const low = msg.toLowerCase()
-    // Hard errors that should fall back to Groq
-    if (res.status === 400 || res.status === 401 || res.status === 403) return false
-    if (low.includes('api key') || low.includes('quota') || low.includes('rate limit')) return false
+    const msg = (() => { try { return JSON.parse(txt)?.error?.message ?? txt } catch { return txt } })()
+    emit(`\n_[Gemini ${res.status}: ${msg.slice(0, 200)}]_`)
     return false
   }
 
