@@ -26,11 +26,16 @@ export default async function handler(request: Request): Promise<Response> {
   if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 })
 
   // @ts-ignore – Deno global
-  const geminiKey: string | undefined = Deno.env.get('GEMINI_API_KEY')
+  const geminiRaw: string | undefined = Deno.env.get('GEMINI_API_KEY')
   // @ts-ignore
   const groqKey: string | undefined = Deno.env.get('GROQ_API_KEY')
 
-  if (!geminiKey && !groqKey) {
+  // Support multiple Gemini keys separated by commas: GEMINI_API_KEY=key1,key2,key3
+  const geminiKeys: string[] = geminiRaw
+    ? geminiRaw.split(',').map(k => k.trim()).filter(Boolean)
+    : []
+
+  if (geminiKeys.length === 0 && !groqKey) {
     return new Response(
       JSON.stringify({ error: 'Chưa cấu hình API key. Thêm GEMINI_API_KEY hoặc GROQ_API_KEY vào Netlify Environment Variables.' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } },
@@ -50,13 +55,13 @@ export default async function handler(request: Request): Promise<Response> {
     async start(controller) {
       const emit = (t: string) => controller.enqueue(encoder.encode(t))
       try {
-        if (geminiKey) {
-          const ok = await runGemini(geminiKey, chartData, emit)
+        // Try each Gemini key in order until one succeeds
+        for (let i = 0; i < geminiKeys.length; i++) {
+          const ok = await runGemini(geminiKeys[i], chartData, emit)
           if (ok) return
-          // Gemini failed — fall through to Groq
-          if (groqKey) {
-            emit('\n\n---\n\n_⚠️ Gemini tạm thời không khả dụng, chuyển sang Groq AI..._\n\n')
-          }
+        }
+        if (geminiKeys.length > 0 && groqKey) {
+          emit('\n\n---\n\n_⚠️ Tất cả Gemini key tạm thời không khả dụng, chuyển sang Groq AI..._\n\n')
         }
         if (groqKey) {
           const chart = buildChartBlock(chartData)
