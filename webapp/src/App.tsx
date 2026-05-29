@@ -349,9 +349,17 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
   const [done, setDone] = useState(false)
   const [toast, setToast] = useState('')
   const [targetYear, setTargetYear] = useState<number>(initialYear ?? new Date().getFullYear())
+  const [cooldown, setCooldown] = useState(0)
   useEffect(() => {
     if (initialYear !== undefined) setTargetYear(initialYear)
   }, [initialYear])
+
+  // Groq free-tier TPM resets on a rolling 60s window — block re-analysis until then
+  useEffect(() => {
+    if (cooldown <= 0) return
+    const id = setInterval(() => setCooldown(c => (c <= 1 ? 0 : c - 1)), 1000)
+    return () => clearInterval(id)
+  }, [cooldown])
 
   const sectionMatches = text.match(/^## .+/gm) ?? []
   const sectionCount = sectionMatches.length
@@ -402,6 +410,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
         setText(prev => prev + decoder.decode(value))
       }
       setDone(true)
+      setCooldown(60)
     } catch (e: any) {
       setError(e.message || 'Lỗi không xác định.')
     } finally {
@@ -410,6 +419,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
   }
 
   function handleAnalyze() {
+    if (loading || cooldown > 0) return
     startAiAnalysis()
   }
 
@@ -449,7 +459,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
             ✦ Bắt đầu phân tích AI
           </button>
           <p className="is-note">
-            Phân tích năm {targetYear} · Thời gian: ~10–20 giây · Powered by Groq AI (Llama 3.3)
+            Phân tích năm {targetYear} · Thời gian: ~20–40 giây · Gemini 2.5 Flash → Groq (dự phòng)
           </p>
         </div>
       )}
@@ -471,7 +481,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
       {text && (
         <div className="interpret-result">
           <div className="interpret-year-badge">
-            ✦ Groq AI · Năm {targetYear}
+            ✦ Tử Vi AI · Năm {targetYear}
           </div>
           <MdText text={text} />
           {loading && <span className="cursor-blink">▌</span>}
@@ -489,7 +499,14 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
 
       {(done || error) && (
         <div className="interpret-actions">
-          <button className="btn-reanalyze" onClick={e => { createRipple(e); handleAnalyze() }}>🔄 Phân tích lại</button>
+          <button
+            className="btn-reanalyze"
+            disabled={cooldown > 0 || loading}
+            title={cooldown > 0 ? 'Chờ giới hạn API miễn phí reset' : ''}
+            onClick={e => { createRipple(e); handleAnalyze() }}
+          >
+            {cooldown > 0 ? `🔄 Phân tích lại (${cooldown}s)` : '🔄 Phân tích lại'}
+          </button>
           {done && error === '' && (
             <>
               <button className="btn-share" onClick={e => { createRipple(e); handleShare() }}>🔗 Chia sẻ</button>
