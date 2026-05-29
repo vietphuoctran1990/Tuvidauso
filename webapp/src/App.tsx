@@ -459,7 +459,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
             ✦ Bắt đầu phân tích AI
           </button>
           <p className="is-note">
-            Phân tích năm {targetYear} · Thời gian: ~25–40 giây · Powered by Groq AI (Llama 3.3 70B)
+            Phân tích năm {targetYear} · Thời gian: ~20–40 giây · Gemini 2.5 Flash → Groq (dự phòng)
           </p>
         </div>
       )}
@@ -468,7 +468,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
         <div className="interpret-loading">
           <div className="spin-container"><span className="spin-sym">☯</span></div>
           <p>Đang phân tích lá số tử vi...</p>
-          <p className="load-sub">AI đang đọc các sao và tổng hợp kết quả (2 lượt: bản mệnh → vận hạn)</p>
+          <p className="load-sub">AI đang đọc các sao và tổng hợp kết quả</p>
         </div>
       )}
 
@@ -481,7 +481,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
       {text && (
         <div className="interpret-result">
           <div className="interpret-year-badge">
-            ✦ Groq AI · Năm {targetYear}
+            ✦ Tử Vi AI · Năm {targetYear}
           </div>
           <MdText text={text} />
           {loading && <span className="cursor-blink">▌</span>}

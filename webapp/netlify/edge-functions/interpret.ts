@@ -1,12 +1,17 @@
-// Netlify Edge Function – Deno runtime, streams Groq interpretation
-// Uses Groq API (OpenAI-compatible) with Llama 3.3 70B.
-// Strategy: 2-pass chunked generation to stay under the 12K TPM free-tier limit.
-//   Groq reserves (input + max_tokens) against TPM on every request, so each
-//   pass keeps a lean input and a modest max_tokens; the two passes together
-//   stay comfortably below 12K within the rolling 60-second window.
+// Netlify Edge Function – multi-provider AI with automatic fallback
+//
+// Provider order:
+//   1. Google Gemini 2.5 Flash  (GEMINI_API_KEY)  – generous free TPM, full prompt, rich output
+//   2. Groq Llama 3.3 70B       (GROQ_API_KEY)    – 2-pass chunked to fit 12K TPM free tier
+//
+// If the primary provider errors for any reason (rate limit, invalid key, network)
+// the stream transparently continues with the fallback provider.
 
-const MODEL = 'llama-3.3-70b-versatile'
-const MAX_TOKENS_PER_PASS = 3600
+const GEMINI_MODEL = 'gemini-2.5-flash'
+const GEMINI_MAX_TOKENS = 12000
+
+const GROQ_MODEL = 'llama-3.3-70b-versatile'
+const GROQ_MAX_TOKENS_PER_PASS = 3600
 
 export default async function handler(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') {
@@ -18,40 +23,49 @@ export default async function handler(request: Request): Promise<Response> {
       },
     })
   }
-
-  if (request.method !== 'POST') {
-    return new Response('Method Not Allowed', { status: 405 })
-  }
+  if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 })
 
   // @ts-ignore – Deno global
-  const apiKey: string | undefined = Deno.env.get('GROQ_API_KEY')
-  if (!apiKey) {
+  const geminiKey: string | undefined = Deno.env.get('GEMINI_API_KEY')
+  // @ts-ignore
+  const groqKey: string | undefined = Deno.env.get('GROQ_API_KEY')
+
+  if (!geminiKey && !groqKey) {
     return new Response(
-      JSON.stringify({ error: 'GROQ_API_KEY chưa được cấu hình trên Netlify.' }),
+      JSON.stringify({ error: 'Chưa cấu hình API key. Thêm GEMINI_API_KEY hoặc GROQ_API_KEY vào Netlify Environment Variables.' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } },
     )
   }
 
   let chartData: any
   try {
-    const body = await request.json()
-    chartData = body.chartData
+    chartData = (await request.json()).chartData
   } catch {
     return new Response('Invalid JSON', { status: 400 })
   }
 
   const encoder = new TextEncoder()
-  const chart = buildChartBlock(chartData)
 
   const stream = new ReadableStream({
     async start(controller) {
       const emit = (t: string) => controller.enqueue(encoder.encode(t))
       try {
-        // Pass 1 — bản mệnh (sections 1–9)
-        await runPass(apiKey, chart, PASS_1_SECTIONS, emit)
-        emit('\n\n')
-        // Pass 2 — vận hạn & kết luận (sections 10–17)
-        await runPass(apiKey, chart, PASS_2_SECTIONS, emit)
+        if (geminiKey) {
+          const ok = await runGemini(geminiKey, chartData, emit)
+          if (ok) return
+          // Gemini failed — fall through to Groq
+          if (groqKey) {
+            emit('\n\n---\n\n_⚠️ Gemini tạm thời không khả dụng, chuyển sang Groq AI..._\n\n')
+          }
+        }
+        if (groqKey) {
+          const chart = buildChartBlock(chartData)
+          await runGroqPass(groqKey, chart, PASS_1_SECTIONS, emit)
+          emit('\n\n')
+          await runGroqPass(groqKey, chart, PASS_2_SECTIONS, emit)
+        } else {
+          emit('\n\n[Lỗi: GEMINI_API_KEY không hoạt động và không có GROQ_API_KEY để dự phòng.]')
+        }
       } catch (e: any) {
         emit(`\n\n[Lỗi: ${e?.message || 'không xác định'}]`)
       } finally {
@@ -70,9 +84,69 @@ export default async function handler(request: Request): Promise<Response> {
   })
 }
 
-// ─── One Groq streaming pass (with one rate-limit retry) ────────────────────
+// ─── Gemini 2.5 Flash streaming ──────────────────────────────────────────────
+// Returns true if the call succeeded, false if it should fall back.
 
-async function runPass(
+async function runGemini(apiKey: string, chartData: any, emit: (t: string) => void): Promise<boolean> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?key=${apiKey}&alt=sse`
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+        contents: [{ role: 'user', parts: [{ text: buildFullPrompt(chartData) }] }],
+        generationConfig: { maxOutputTokens: GEMINI_MAX_TOKENS, temperature: 0.75 },
+      }),
+    })
+  } catch {
+    return false // network error → fall back
+  }
+
+  if (!res.ok || !res.body) {
+    const txt = await res.text().catch(() => '')
+    const msg = (() => { try { return JSON.parse(txt)?.error?.message ?? '' } catch { return '' } })()
+    const low = msg.toLowerCase()
+    // Hard errors that should fall back to Groq
+    if (res.status === 400 || res.status === 401 || res.status === 403) return false
+    if (low.includes('api key') || low.includes('quota') || low.includes('rate limit')) return false
+    return false
+  }
+
+  const decoder = new TextDecoder()
+  const reader = res.body.getReader()
+  let buf = ''
+  let hadText = false
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      const lines = buf.split('\n')
+      buf = lines.pop() ?? ''
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const data = line.slice(6).trim()
+        if (!data || data === '[DONE]') continue
+        try {
+          const json = JSON.parse(data)
+          const text: string = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+          if (text) { emit(text); hadText = true }
+          const finish: string = json?.candidates?.[0]?.finishReason ?? ''
+          if (finish && finish !== 'STOP' && finish !== 'MAX_TOKENS') return hadText
+        } catch { /* skip malformed SSE */ }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  return hadText
+}
+
+// ─── Groq streaming pass (with one rate-limit retry) ─────────────────────────
+
+async function runGroqPass(
   apiKey: string,
   chart: string,
   sections: string,
@@ -81,17 +155,14 @@ async function runPass(
 ): Promise<void> {
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model: MODEL,
+      model: GROQ_MODEL,
       messages: [
         { role: 'system', content: SYSTEM_INSTRUCTION },
-        { role: 'user', content: `${chart}\n\nViết các mục sau, mỗi mục 6–9 câu, văn phong tử vi sư, dẫn sao + trạng thái cụ thể (đừng nói chung chung). Giữ nguyên tiêu đề có emoji:\n\n${sections}` },
+        { role: 'user', content: `${chart}\n\nViết các mục sau, mỗi mục 6–9 câu, dẫn sao + trạng thái cụ thể:\n\n${sections}` },
       ],
-      max_tokens: MAX_TOKENS_PER_PASS,
+      max_tokens: GROQ_MAX_TOKENS_PER_PASS,
       temperature: 0.75,
       stream: true,
     }),
@@ -103,18 +174,17 @@ async function runPass(
     try { errMsg = JSON.parse(errText)?.error?.message ?? '' } catch { /* */ }
     const low = errMsg.toLowerCase()
 
-    // Rate limited → wait the suggested time and retry once
     if ((res.status === 429 || low.includes('rate limit')) && !isRetry) {
       const wait = parseRetrySeconds(errMsg, res.headers.get('retry-after'))
-      emit(`\n\n_⏳ Đang chờ giới hạn API reset (~${wait}s) rồi viết tiếp..._\n\n`)
+      emit(`\n\n_⏳ Đang chờ giới hạn API (~${wait}s) rồi viết tiếp..._\n\n`)
       await sleep(wait * 1000)
-      return runPass(apiKey, chart, sections, emit, true)
+      return runGroqPass(apiKey, chart, sections, emit, true)
     }
     if (low.includes('invalid api key') || low.includes('auth')) {
-      emit('\n\n[Lỗi: GROQ_API_KEY không hợp lệ. Vui lòng kiểm tra cấu hình trên Netlify.]')
+      emit('\n\n[Lỗi: GROQ_API_KEY không hợp lệ.]')
       return
     }
-    emit(`\n\n[Lỗi API: ${errMsg || errText}]`)
+    emit(`\n\n[Lỗi Groq: ${errMsg || errText}]`)
     return
   }
 
@@ -135,7 +205,7 @@ async function runPass(
         try {
           const text: string = JSON.parse(data)?.choices?.[0]?.delta?.content ?? ''
           if (text) emit(text)
-        } catch { /* ignore malformed SSE lines */ }
+        } catch { /* ignore */ }
       }
     }
   } finally {
@@ -153,11 +223,115 @@ function parseRetrySeconds(msg: string, header: string | null): number {
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
-// ─── System instruction ─────────────────────────────────────────────────────
+// ─── System instruction (shared) ─────────────────────────────────────────────
 
 const SYSTEM_INSTRUCTION = `Bạn là Tử Vi sư Việt Nam chuyên nghiệp. Nguyên tắc: (1) xét cung thủ + cung chiếu đối diện; (2) tam hợp/xung ảnh hưởng Mệnh; (3) Tứ Hóa tác động riêng từng cung; (4) tổ hợp sao tương tác nhau; (5) trạng thái Miếu/Vượng/Đắc > Bình > Hãm; (6) Tuần/Triệt làm yếu sao; (7) Đại Hạn kết hợp bản Mệnh. Nhận diện và gọi tên Cách Cục (Tử Phủ triều viên, Song Lộc, Không Kiếp giáp Mệnh, Nhật Nguyệt đồng chiếu, Mã Đầu Đới Tiễn...). Viết tiếng Việt sâu sắc, dẫn chứng tên sao + trạng thái cụ thể.`
 
-// ─── Section groups (split across the 2 passes) ─────────────────────────────
+// ─── Full prompt for Gemini (rich, 17 sections) ───────────────────────────────
+
+function buildFullPrompt(d: any): string {
+  const { form, info, danNap, palaces, daiHan, tieuHan, currentYear, currentDH, currentTH } = d
+  const age = currentYear - form.year
+
+  const palaceLines = palaces.map((p: any) => {
+    const chinh = p.chinhTinh.map((s: any) => `${s.name}(${s.status || '-'})`).join(', ') || 'Trống'
+    const tot = p.saotot.map((s: any) => s.name).join(', ') || '-'
+    const xau = p.saoxau.map((s: any) => s.name).join(', ') || '-'
+    const hoa = [
+      p.locNhap   && `HóaLộc←${p.locNhap}`,
+      p.quyenNhap && `HóaQuyền←${p.quyenNhap}`,
+      p.khoaNhap  && `HóaKhoa←${p.khoaNhap}`,
+      p.kyNhap    && `HóaKỵ←${p.kyNhap}`,
+    ].filter(Boolean).join(', ')
+    const flags = [p.isLife && 'MỆNH', p.isBody && 'THÂN', p.tuan && 'Tuần', p.triet && 'Triệt'].filter(Boolean).join('/')
+    return `▸ ${p.name}(${p.canCung})${flags ? ` [${flags}]` : ''}: ${chinh} | cát:${tot} | hung:${xau}${hoa ? ` | ${hoa}` : ''} | ${p.trangSinh}`
+  }).join('\n')
+
+  const dhLines = daiHan.map((dh: any, i: number) => {
+    const sy = form.year + dh.startAge - 1
+    const cur = age >= dh.startAge && age <= dh.endAge
+    const hoa = [
+      dh.locNhap && `Lộc←${dh.locNhap}`, dh.quyenNhap && `Quyền←${dh.quyenNhap}`,
+      dh.khoaNhap && `Khoa←${dh.khoaNhap}`, dh.kyNhap && `Kỵ←${dh.kyNhap}`,
+    ].filter(Boolean).join(', ')
+    return `ĐH${i + 1}[${dh.startAge}-${dh.endAge}t|${sy}-${sy + 9}]${cur ? '◄NẠY' : ''} ${dh.cungName}(${dh.chiName}) ${dh.trangSinh}: ${dh.chinhTinh.join(',') || 'Trống'} | hung:${dh.saoxau.join(',') || '-'}${hoa ? ` | ${hoa}` : ''}`
+  }).join('\n')
+
+  const thLines = tieuHan.map((th: any) => {
+    const cur = th.years.includes(currentYear)
+    const hoa = [
+      th.locNhap && `Lộc←${th.locNhap}`, th.quyenNhap && `Quyền←${th.quyenNhap}`,
+      th.khoaNhap && `Khoa←${th.khoaNhap}`, th.kyNhap && `Kỵ←${th.kyNhap}`,
+    ].filter(Boolean).join(', ')
+    return `${th.yearChi}${cur ? '◄NĂM NAY' : ''}: ${th.cungName} | ${th.chinhTinh.join(',') || 'Trống'} | hung:${th.saoxau?.join(',') || '-'}${hoa ? ` | ${hoa}` : ''}`
+  }).join('\n')
+
+  return `[LÁ SỐ] ${form.name} | ${form.gender} | ${form.day}/${form.month}/${form.year}${form.isLunar ? ' ÂL' : ''} | ${info.nam} | giờ ${info.gio} | ${info.amDuong} | Cục ${info.cuc} | ${danNap}
+Chủ Mệnh ${info.chuMenh}, Chủ Thân ${info.chuThan}, ${info.thanCu}. Tuổi ${age} (${currentYear}).
+
+[12 CUNG]
+${palaceLines}
+
+[ĐẠI HẠN]
+${dhLines}
+
+[TIỂU HẠN]
+${thLines}
+
+Viết bài phân tích hoàn chỉnh 17 mục dưới đây — mỗi mục tối thiểu 6–8 câu, dẫn chứng sao và trạng thái cụ thể, không nói chung chung:
+
+## 🌟 TỔNG QUAN LÁ SỐ
+## ⭐ CÁCH CỤC & HÌNH THÁI LÁ SỐ
+## 👤 TÍNH CÁCH & BẢN CHẤT CON NGƯỜI
+## 💼 SỰ NGHIỆP & CÔNG DANH (Quan Lộc)
+## 💰 TÀI CHÍNH & TÀI LỘC (Tài Bạch)
+## 💑 TÌNH DUYÊN & HÔN NHÂN (Phu Thê)
+## 👨‍👩‍👧 GIA ĐÌNH & NGƯỜI THÂN (Phụ Mẫu / Huynh Đệ / Tử Tức)
+## 🏠 NHÀ CỬA & BẤT ĐỘNG SẢN (Điền Trạch)
+## 🍀 PHÚC ĐỨC & TÂM LINH (Phúc Đức)
+## ✈️ XÃ HỘI & DI CHUYỂN (Thiên Di / Nô Bộc)
+## 🏥 SỨC KHỎE (Tật Ách)
+## 🔗 TỨ HÓA & TƯƠNG TÁC ĐẶC BIỆT
+## 📅 ĐẠI HẠN HIỆN TẠI ${currentDH ? `(${currentDH.startAge}–${currentDH.endAge} tuổi — ${currentDH.cungName})` : ''}
+## 📆 VẬN NĂM ${currentYear}${currentTH ? ` — Tiểu Hạn ${currentTH.cungName}` : ''}
+## 📊 LỘ TRÌNH TOÀN BỘ ĐẠI HẠN
+## ⚠️ TUỔI & GIAI ĐOẠN CẦN ĐỀ PHÒNG
+## 💡 KẾT LUẬN & LỜI KHUYÊN CHIẾN LƯỢC`
+}
+
+// ─── Compact chart block for Groq 2-pass (~1.5K tokens) ─────────────────────
+
+function buildChartBlock(d: any): string {
+  const { form, info, danNap, palaces, daiHan, tieuHan, currentYear, currentDH } = d
+  const age = currentYear - form.year
+
+  const palaceLines = palaces.map((p: any) => {
+    const chinh = p.chinhTinh.map((s: any) => `${s.name}(${s.status || '-'})`).join(',') || 'Trống'
+    const hoa = [p.locNhap && `Lộc←${p.locNhap}`, p.quyenNhap && `Quyền←${p.quyenNhap}`,
+      p.khoaNhap && `Khoa←${p.khoaNhap}`, p.kyNhap && `Kỵ←${p.kyNhap}`].filter(Boolean).join(',')
+    const flags = [p.isLife && 'MỆNH', p.isBody && 'THÂN', p.tuan && 'Tuần', p.triet && 'Triệt'].filter(Boolean).join('/')
+    return `${p.name}(${p.canCung})${flags ? `[${flags}]` : ''}: ${chinh} |cát:${p.saotot.map((s: any) => s.name).join(',') || '-'} |hung:${p.saoxau.map((s: any) => s.name).join(',') || '-'}${hoa ? ` |${hoa}` : ''}`
+  }).join('\n')
+
+  const dhLines = daiHan.map((dh: any, i: number) => {
+    const cur = age >= dh.startAge && age <= dh.endAge
+    const hoa = [dh.locNhap && 'Lộc', dh.quyenNhap && 'Quyền', dh.khoaNhap && 'Khoa', dh.kyNhap && 'Kỵ'].filter(Boolean).join(',')
+    return `ĐH${i + 1}(${dh.startAge}-${dh.endAge}t,${dh.cungName})${cur ? '◄nay' : ''}: ${dh.chinhTinh.join(',') || 'Trống'}${dh.saoxau.length ? ` hung:${dh.saoxau.join(',')}` : ''}${hoa ? ` hóa:${hoa}` : ''}`
+  }).join('\n')
+
+  const thNow = tieuHan.find((th: any) => th.years.includes(currentYear))
+  const thLine = thNow
+    ? `Năm ${currentYear}(${thNow.yearChi})→${thNow.cungName}: ${thNow.chinhTinh.join(',') || 'Trống'}${thNow.saoxau?.length ? ` hung:${thNow.saoxau.join(',')}` : ''}`
+    : ''
+
+  return `[LÁ SỐ] ${form.name}|${form.gender}|${form.day}/${form.month}/${form.year}${form.isLunar ? ' ÂL' : ''}|${info.nam}|giờ ${info.gio}|${info.amDuong}|Cục ${info.cuc}|${danNap}
+Chủ Mệnh ${info.chuMenh}, Chủ Thân ${info.chuThan}, ${info.thanCu}. Tuổi ${age}(${currentYear}).
+[12 CUNG]\n${palaceLines}
+[ĐẠI HẠN]\n${dhLines}
+[VẬN NĂM]${currentDH ? ` ĐH: ${currentDH.startAge}-${currentDH.endAge}t, ${currentDH.cungName}.` : ''} ${thLine}`
+}
+
+// ─── Groq section groups (2-pass split) ──────────────────────────────────────
 
 const PASS_1_SECTIONS = `## 🌟 TỔNG QUAN LÁ SỐ
 ## ⭐ CÁCH CỤC & HÌNH THÁI
@@ -174,52 +348,6 @@ const PASS_2_SECTIONS = `## ✈️ XÃ HỘI & DI CHUYỂN (Thiên Di / Nô Bộ
 ## 🔗 TỨ HÓA & TƯƠNG TÁC ĐẶC BIỆT
 ## 📅 ĐẠI HẠN HIỆN TẠI
 ## 📆 VẬN NĂM (kèm phân tích từng quý)
-## 📊 LỘ TRÌNH TOÀN BỘ ĐẠI HẠN (đỉnh cao & đáy của đời)
+## 📊 LỘ TRÌNH TOÀN BỘ ĐẠI HẠN
 ## ⚠️ TUỔI & GIAI ĐOẠN CẦN ĐỀ PHÒNG
 ## 💡 KẾT LUẬN & LỜI KHUYÊN`
-
-// ─── Lean chart block (shared by both passes, ~1.5K tokens) ─────────────────
-
-function buildChartBlock(d: any): string {
-  const { form, info, danNap, palaces, daiHan, tieuHan, currentYear, currentDH, currentTH } = d
-  const age = currentYear - form.year
-
-  const palaceLines = palaces.map((p: any) => {
-    const chinh = p.chinhTinh.map((s: any) => `${s.name}(${s.status || '-'})`).join(',') || 'Trống'
-    const tot = p.saotot.map((s: any) => s.name).join(',') || '-'
-    const xau = p.saoxau.map((s: any) => s.name).join(',') || '-'
-    const hoa = [
-      p.locNhap   && `Lộc←${p.locNhap}`,
-      p.quyenNhap && `Quyền←${p.quyenNhap}`,
-      p.khoaNhap  && `Khoa←${p.khoaNhap}`,
-      p.kyNhap    && `Kỵ←${p.kyNhap}`,
-    ].filter(Boolean).join(',')
-    const flags = [p.isLife && 'MỆNH', p.isBody && 'THÂN', p.tuan && 'Tuần', p.triet && 'Triệt']
-      .filter(Boolean).join('/')
-    return `${p.name}(${p.canCung})${flags ? `[${flags}]` : ''}: ${chinh} |cát:${tot} |hung:${xau}${hoa ? ` |hóa:${hoa}` : ''}`
-  }).join('\n')
-
-  const dhLines = daiHan.map((dh: any, i: number) => {
-    const cur = age >= dh.startAge && age <= dh.endAge
-    const hoa = [dh.locNhap && 'Lộc', dh.quyenNhap && 'Quyền', dh.khoaNhap && 'Khoa', dh.kyNhap && 'Kỵ']
-      .filter(Boolean).join(',')
-    return `ĐH${i + 1}(${dh.startAge}-${dh.endAge}t,${dh.cungName})${cur ? '◄nay' : ''}: ${dh.chinhTinh.join(',') || 'Trống'}${dh.saoxau.length ? ` hung:${dh.saoxau.join(',')}` : ''}${hoa ? ` hóa:${hoa}` : ''}`
-  }).join('\n')
-
-  const thNow = tieuHan.find((th: any) => th.years.includes(currentYear))
-  const thLine = thNow
-    ? `Năm ${currentYear} (${thNow.yearChi}) → cung ${thNow.cungName}: ${thNow.chinhTinh.join(',') || 'Trống'}${thNow.saoxau?.length ? ` hung:${thNow.saoxau.join(',')}` : ''}`
-    : ''
-
-  return `[LÁ SỐ] ${form.name} | ${form.gender} | ${form.day}/${form.month}/${form.year}${form.isLunar ? ' ÂL' : ''} | ${info.nam} | giờ ${info.gio} | ${info.amDuong} | Cục ${info.cuc} | ${danNap}
-Chủ Mệnh ${info.chuMenh}, Chủ Thân ${info.chuThan}, ${info.thanCu}. Tuổi ${age} (năm ${currentYear}).
-
-[12 CUNG]
-${palaceLines}
-
-[ĐẠI HẠN]
-${dhLines}
-
-[VẬN NĂM]${currentDH ? ` ĐH hiện tại: ${currentDH.startAge}-${currentDH.endAge}t, cung ${currentDH.cungName}.` : ''}
-${thLine}`
-}
