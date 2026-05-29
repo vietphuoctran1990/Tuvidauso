@@ -60,31 +60,35 @@ export default async function handler(request: Request): Promise<Response> {
       const emit = (t: string) => controller.enqueue(encoder.encode(t))
       try {
         if (provider === 'groq') {
-          // Groq-only (nhanh)
+          // Groq-only mode
           if (!groqKey) { emit('[Lỗi: Chưa cấu hình GROQ_API_KEY trên Netlify.]'); return }
           await runGroqPass(groqKey, chart, PASS_1_SECTIONS, emit)
           emit('\n\n')
           await runGroqPass(groqKey, chart, PASS_2_SECTIONS, emit)
-        } else if (provider === 'gemini') {
-          // Gemini-only (chuyên sâu) — không fallback sang Groq
-          if (geminiKeys.length === 0) { emit('[Lỗi: Chưa cấu hình GEMINI_API_KEY trên Netlify.]'); return }
-          for (let i = 0; i < geminiKeys.length; i++) {
-            const ok = await runGemini(geminiKeys[i], chartData, emit)
-            if (ok) return
-          }
         } else {
-          // Auto-mode: Gemini → Groq fallback
-          for (let i = 0; i < geminiKeys.length; i++) {
-            const ok = await runGemini(geminiKeys[i], chartData, emit)
-            if (ok) return
-          }
-          if (groqKey) {
-            if (geminiKeys.length > 0) emit('\n\n---\n\n_⚠️ Gemini không khả dụng, chuyển sang Groq..._\n\n')
-            await runGroqPass(groqKey, chart, PASS_1_SECTIONS, emit)
-            emit('\n\n')
-            await runGroqPass(groqKey, chart, PASS_2_SECTIONS, emit)
-          } else {
+          // Gemini mode (or auto) — fallback to Groq on quota/error
+          let geminiOk = false
+          if (geminiKeys.length === 0 && !groqKey) {
             emit('[Lỗi: Chưa cấu hình API key. Thêm GEMINI_API_KEY hoặc GROQ_API_KEY vào Netlify.]')
+            return
+          }
+          for (let i = 0; i < geminiKeys.length; i++) {
+            const result = await runGemini(geminiKeys[i], chartData, emit)
+            if (result === 'ok') { geminiOk = true; break }
+            // 'quota' or 'error' → try next key silently
+          }
+          if (!geminiOk) {
+            // All Gemini keys exhausted — fall back to Groq
+            if (groqKey) {
+              if (geminiKeys.length > 0) {
+                emit('_⚡ Gemini đã hết quota hôm nay, chuyển sang Groq AI..._\n\n')
+              }
+              await runGroqPass(groqKey, chart, PASS_1_SECTIONS, emit)
+              emit('\n\n')
+              await runGroqPass(groqKey, chart, PASS_2_SECTIONS, emit)
+            } else {
+              emit('[Lỗi: Tất cả Gemini key đã hết quota hôm nay. Thêm GROQ_API_KEY để dự phòng hoặc dùng key Gemini khác.]')
+            }
           }
         }
       } catch (e: any) {
@@ -105,10 +109,10 @@ export default async function handler(request: Request): Promise<Response> {
   })
 }
 
-// ─── Gemini 2.5 Flash streaming ──────────────────────────────────────────────
-// Returns true if the call succeeded, false if it should fall back.
+// ─── Gemini streaming ────────────────────────────────────────────────────────
+// Returns 'ok' | 'quota' | 'error'
 
-async function runGemini(apiKey: string, chartData: any, emit: (t: string) => void): Promise<boolean> {
+async function runGemini(apiKey: string, chartData: any, emit: (t: string) => void): Promise<'ok' | 'quota' | 'error'> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?key=${apiKey}&alt=sse`
   let res: Response
   try {
@@ -121,16 +125,21 @@ async function runGemini(apiKey: string, chartData: any, emit: (t: string) => vo
         generationConfig: { maxOutputTokens: GEMINI_MAX_TOKENS, temperature: 0.75 },
       }),
     })
-  } catch (e: any) {
-    emit(`\n_[Gemini network error: ${e?.message}]_`)
-    return false
+  } catch {
+    return 'error'
   }
 
   if (!res.ok || !res.body) {
     const txt = await res.text().catch(() => '')
     const msg = (() => { try { return JSON.parse(txt)?.error?.message ?? txt } catch { return txt } })()
-    emit(`\n_[Gemini ${res.status}: ${msg.slice(0, 200)}]_`)
-    return false
+    const low = msg.toLowerCase()
+    // Quota/rate-limit: silent, try next key
+    if (res.status === 429 || low.includes('quota') || low.includes('rate limit') || low.includes('spending cap')) {
+      return 'quota'
+    }
+    // Unexpected error: emit for visibility
+    emit(`\n_[Gemini ${res.status}: ${msg.slice(0, 150)}]_`)
+    return 'error'
   }
 
   const decoder = new TextDecoder()
@@ -153,14 +162,14 @@ async function runGemini(apiKey: string, chartData: any, emit: (t: string) => vo
           const text: string = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
           if (text) { emit(text); hadText = true }
           const finish: string = json?.candidates?.[0]?.finishReason ?? ''
-          if (finish && finish !== 'STOP' && finish !== 'MAX_TOKENS') return hadText
+          if (finish && finish !== 'STOP' && finish !== 'MAX_TOKENS') return hadText ? 'ok' : 'error'
         } catch { /* skip malformed SSE */ }
       }
     }
   } finally {
     reader.releaseLock()
   }
-  return hadText
+  return hadText ? 'ok' : 'error'
 }
 
 // ─── Groq streaming pass (with one rate-limit retry) ─────────────────────────
