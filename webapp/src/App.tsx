@@ -171,6 +171,128 @@ function getAnnualStarsForYear(year: number): Record<number, { name: string; ico
   return result
 }
 
+// Tứ Hóa table indexed by Thiên Can (0=Giáp … 9=Quý)
+const TU_HOA_BY_CAN = [
+  { loc: 'Liêm trinh',  quyen: 'Phá quân',    khoa: 'Vũ khúc',     ky: 'Thái dương'  }, // Giáp
+  { loc: 'Thiên cơ',    quyen: 'Thiên lương',  khoa: 'Tử vi',       ky: 'Thái âm'     }, // Ất
+  { loc: 'Thiên đồng',  quyen: 'Thiên cơ',     khoa: 'Văn xương',   ky: 'Liêm trinh'  }, // Bính
+  { loc: 'Thái âm',     quyen: 'Thiên đồng',   khoa: 'Thiên cơ',    ky: 'Cự môn'      }, // Đinh
+  { loc: 'Tham lang',   quyen: 'Thái âm',      khoa: 'Hữu bật',     ky: 'Thiên cơ'    }, // Mậu
+  { loc: 'Vũ khúc',     quyen: 'Tham lang',    khoa: 'Thiên lương', ky: 'Văn khúc'    }, // Kỷ
+  { loc: 'Thái dương',  quyen: 'Vũ khúc',      khoa: 'Thái âm',     ky: 'Thiên đồng'  }, // Canh
+  { loc: 'Cự môn',      quyen: 'Thái dương',   khoa: 'Văn khúc',    ky: 'Văn xương'   }, // Tân
+  { loc: 'Thiên lương', quyen: 'Tử vi',        khoa: 'Tả phù',      ky: 'Vũ khúc'     }, // Nhâm
+  { loc: 'Phá quân',    quyen: 'Cự môn',       khoa: 'Thái âm',     ky: 'Tham lang'   }, // Quý
+]
+
+// Compute Tứ Hóa for a given Can index — finds which palace each transforming star lands in
+function computeTuHoaForCan(canIdx: number, rawCungs: any[]) {
+  const th = TU_HOA_BY_CAN[canIdx]
+  if (!th) return null
+  const findPalace = (starName: string): string => {
+    const low = starName.toLowerCase()
+    for (const c of rawCungs) {
+      const names: string[] = [
+        ...(c.ChinhTinh ?? []).map((s: any) => (s.Name as string).toLowerCase()),
+        ...(c.Saotot   ?? []).map((s: any) => (s.Name as string).toLowerCase()),
+        ...(c.Saoxau   ?? []).map((s: any) => (s.Name as string).toLowerCase()),
+      ]
+      if (names.includes(low)) return c.Name as string
+    }
+    return '—'
+  }
+  return {
+    can:   T_CAN[canIdx],
+    loc:   { star: th.loc,   palace: findPalace(th.loc)   },
+    quyen: { star: th.quyen, palace: findPalace(th.quyen) },
+    khoa:  { star: th.khoa,  palace: findPalace(th.khoa)  },
+    ky:    { star: th.ky,    palace: findPalace(th.ky)    },
+  }
+}
+
+// Detect Cách Cục patterns from raw palace data
+function detectCachCuc(rawCungs: any[]): string[] {
+  const found: string[] = []
+  const menhC = rawCungs.find((c: any) => c.Name === 'Mệnh')
+  if (!menhC) return found
+
+  const getN = (c: any): string[] => [
+    ...(c.ChinhTinh ?? []).map((s: any) => (s.Name as string).toLowerCase()),
+    ...(c.Saotot   ?? []).map((s: any) => (s.Name as string).toLowerCase()),
+    ...(c.Saoxau   ?? []).map((s: any) => (s.Name as string).toLowerCase()),
+  ]
+  const mS  = getN(menhC)
+  const inM = (n: string) => mS.includes(n.toLowerCase())
+  const inC = (c: any, n: string) => getN(c).includes(n.toLowerCase())
+
+  const mIdx = D_CHI.indexOf(menhC.TieuHan)
+  const adjL = rawCungs.find((c: any) => c.TieuHan === D_CHI[(mIdx - 1 + 12) % 12])
+  const adjR = rawCungs.find((c: any) => c.TieuHan === D_CHI[(mIdx + 1) % 12])
+  const xungC = rawCungs.find((c: any) => c.TieuHan === D_CHI[(mIdx + 6) % 12])
+
+  // Hung cách
+  if (inM('kình dương')) found.push('Kình Dương tọa Mệnh — cứng rắn quyết đoán, dễ gặp tai họa sát thương')
+  if (inM('đà la'))      found.push('Đà La tọa Mệnh — nhiều trắc trở, hay trì hoãn, chậm thành công')
+
+  const mK = inM('địa không'); const mKp = inM('địa kiếp')
+  if (mK && mKp)     found.push('Không Kiếp đồng cung Mệnh — đại hung, tán tài phá nghiệp')
+  else if (mK)       found.push('Địa Không tọa Mệnh — tổn tài, khó giữ của cải lâu dài')
+  else if (mKp)      found.push('Địa Kiếp tọa Mệnh — hao tài, tai họa bất ngờ')
+
+  if (!mK && !mKp && adjL && adjR) {
+    const lH = inC(adjL, 'địa không') || inC(adjL, 'địa kiếp')
+    const rH = inC(adjR, 'địa không') || inC(adjR, 'địa kiếp')
+    if (lH && rH) found.push('Không Kiếp giáp Mệnh — hai cung kề kẹp Mệnh, tiêu tán tài lộc')
+  }
+
+  const hoa = inM('hỏa tinh'); const linh = inM('linh tinh')
+  if (hoa && linh) found.push('Hỏa Linh đồng cung Mệnh — hung cách, nóng nảy, tai họa đột ngột')
+  else if (hoa)    found.push('Hỏa Tinh tọa Mệnh — tính nóng, dễ bị tổn thương đột ngột')
+  else if (linh)   found.push('Linh Tinh tọa Mệnh — hay gặp biến cố bất ngờ')
+
+  if (inM('thiên khốc') && inM('thiên hư')) found.push('Thiên Khốc Thiên Hư đồng cung Mệnh — hay lo âu, cô đơn nội tâm')
+  if (inM('cô thần') || inM('quả tú'))      found.push('Cô Thần/Quả Tú tọa Mệnh — cô đơn, hôn nhân dễ trắc trở')
+
+  // Cát cách
+  for (const c of rawCungs) {
+    if (getN(c).includes('lộc tồn') && c.LocNhap)
+      found.push(`Song Lộc tại ${c.Name} — Lộc Tồn + Hóa Lộc đồng cung, đại phú`)
+  }
+  for (const c of rawCungs) {
+    const s = getN(c)
+    if (s.includes('lộc tồn') && s.includes('thiên mã'))
+      found.push(`Lộc Mã Giao Trì tại ${c.Name} — Lộc Tồn + Thiên Mã, phú quý phát xa`)
+  }
+
+  const vX = inM('văn xương'); const vK = inM('văn khúc')
+  if (vX && vK) found.push('Song Văn tọa Mệnh — Văn Xương + Văn Khúc, học rộng văn chương xuất sắc')
+  else if (vX)  found.push('Văn Xương tọa Mệnh — thông minh, học giỏi, văn chương')
+  else if (vK)  found.push('Văn Khúc tọa Mệnh — tài nghệ, nghệ thuật, khéo léo')
+
+  const kh = inM('thiên khôi'); const vi = inM('thiên việt')
+  if (kh && vi) found.push('Khôi Việt đồng cung Mệnh — quý nhân phù trợ mạnh, công danh hanh thông')
+  else if (kh)  found.push('Thiên Khôi tọa Mệnh — được quý nhân đỡ đầu, dễ thăng tiến')
+  else if (vi)  found.push('Thiên Việt tọa Mệnh — quý nhân hỗ trợ sự nghiệp')
+
+  const ta = inM('tả phù'); const hu = inM('hữu bật')
+  if (ta && hu) found.push('Tả Hữu đồng cung Mệnh — nhiều người giúp đỡ, lãnh đạo tốt')
+
+  if (xungC) {
+    const xS = getN(xungC)
+    const tdM = inM('thái dương'); const taX = xS.includes('thái âm')
+    const taM = inM('thái âm');   const tdX = xS.includes('thái dương')
+    if ((tdM && taX) || (taM && tdX)) found.push('Nhật Nguyệt chiếu Mệnh — Thái Dương & Thái Âm soi rọi, sáng láng minh tuệ')
+  }
+
+  const tuViS = menhC.ChinhTinh?.find((s: any) => (s.Name as string).toLowerCase() === 'tử vi')
+  if (tuViS && ['M','V'].includes(tuViS.Status)) found.push('Tử Vi Miếu/Vượng tọa Mệnh — đế tinh vượng địa, uy quyền lãnh đạo')
+
+  const phuS = menhC.ChinhTinh?.find((s: any) => (s.Name as string).toLowerCase() === 'thiên phủ')
+  if (phuS && ['M','V','Đ'].includes(phuS.Status)) found.push('Thiên Phủ Miếu/Vượng tọa Mệnh — phú tinh, giàu có, biết tích lũy')
+
+  return found
+}
+
 // Compute DH fortune score
 function computeDhScore(dh: any): number {
   let score = 5
@@ -211,6 +333,38 @@ function buildChartData(result: LaSoResult, form: FormData, daiHan: any[], tieuH
   const age = currentYear - form.year
   const currentDH = daiHan.find(dh => age >= dh.startAge && age <= dh.endAge)
   const currentTH = tieuHan.find(th => th.years.includes(currentYear))
+  const rawCungs = result.Cac_cung as any[]
+
+  // Annual stars (Thái Tuế, Tang Môn, etc.) mapped to palace names
+  const annualByPos = getAnnualStarsForYear(currentYear)
+  const annualStars: Record<string, string[]> = {}
+  for (const c of rawCungs) {
+    const chiIdx = D_CHI.indexOf(c.TieuHan)
+    const stars = annualByPos[chiIdx]
+    if (stars?.length) annualStars[c.Name] = stars.map(s => s.name)
+  }
+
+  // Tam hợp / xung for cung Mệnh
+  const menhRaw = rawCungs.find((c: any) => c.Name === 'Mệnh')
+  const mIdx = menhRaw ? D_CHI.indexOf(menhRaw.TieuHan) : -1
+  const mRels = mIdx >= 0 ? computeRelations(mIdx) : null
+  const menhRelations = mRels ? {
+    menhChi: D_CHI[mIdx],
+    tamHop: mRels.tamHop.map(i => ({ chi: D_CHI[i], cungName: rawCungs.find((c: any) => c.TieuHan === D_CHI[i])?.Name ?? '' })),
+    xung: mRels.xung !== null ? { chi: D_CHI[mRels.xung], cungName: rawCungs.find((c: any) => c.TieuHan === D_CHI[mRels.xung!])?.Name ?? '' } : null,
+  } : null
+
+  // Tứ Hóa for current Đại Hạn (using that cung's Can)
+  const tuHoaDH = currentDH?.cung?.CanCung !== undefined
+    ? computeTuHoaForCan(currentDH.cung.CanCung, rawCungs) : null
+
+  // Tứ Hóa for current year (using year's Can)
+  const yearCanIdx = ((currentYear - 4) % 10 + 10) % 10
+  const tuHoaNam = computeTuHoaForCan(yearCanIdx, rawCungs)
+
+  // Auto-detected Cách Cục
+  const cachCuc = detectCachCuc(rawCungs)
+
   return {
     form: {
       name: form.name || 'Không tên',
@@ -225,39 +379,55 @@ function buildChartData(result: LaSoResult, form: FormData, daiHan: any[], tieuH
       thanCu: result.Info.ThanCu,
     },
     danNap: getDanNap(result),
-    palaces: result.Cac_cung.map((c: any) => ({
+    palaces: rawCungs.map((c: any) => ({
       name: c.Name, tieuHan: c.TieuHan,
       canCung: T_CAN[c.CanCung] ?? '',
       isLife: c.Name === 'Mệnh', isBody: c.Than === 1,
       trangSinh: c.TrangSinh, tuan: c.Tuan === 1, triet: c.Triet === 1,
       locNhap: c.LocNhap, quyenNhap: c.QuyenNhap, khoaNhap: c.KhoaNhap, kyNhap: c.KyNhap,
+      annualStars: annualStars[c.Name] ?? [],
       chinhTinh: (c.ChinhTinh ?? []).map((s: any) => ({ name: s.Name, status: s.Status })),
       saotot:    (c.Saotot   ?? []).map((s: any) => ({ name: s.Name, status: s.Status })),
       saoxau:    (c.Saoxau   ?? []).map((s: any) => ({ name: s.Name })),
     })),
-    daiHan: daiHan.map(dh => ({
-      startAge: dh.startAge, endAge: dh.endAge,
-      cungName: dh.cung?.Name ?? '', chiName: dh.chiName,
-      trangSinh: dh.cung?.TrangSinh ?? '',
-      locNhap: dh.cung?.LocNhap, quyenNhap: dh.cung?.QuyenNhap,
-      khoaNhap: dh.cung?.KhoaNhap, kyNhap: dh.cung?.KyNhap,
-      chinhTinh: (dh.cung?.ChinhTinh ?? []).map((s: any) => s.Name),
-      saotot:    (dh.cung?.Saotot   ?? []).slice(0, 8).map((s: any) => s.Name),
-      saoxau:    (dh.cung?.Saoxau   ?? []).slice(0, 5).map((s: any) => s.Name),
-    })),
-    tieuHan: tieuHan.map(th => ({
-      yearChi: th.yearChi, chiName: th.chiName,
-      cungName: th.cung?.Name ?? '', years: th.years,
-      locNhap: th.cung?.LocNhap, quyenNhap: th.cung?.QuyenNhap,
-      khoaNhap: th.cung?.KhoaNhap, kyNhap: th.cung?.KyNhap,
-      chinhTinh: (th.cung?.ChinhTinh ?? []).map((s: any) => s.Name),
-      saotot: (th.cung?.Saotot ?? []).slice(0, 6).map((s: any) => s.Name),
-      saoxau: (th.cung?.Saoxau ?? []).slice(0, 4).map((s: any) => s.Name),
-    })),
+    daiHan: daiHan.map(dh => {
+      const canIdx = dh.cung?.CanCung ?? -1
+      return {
+        startAge: dh.startAge, endAge: dh.endAge,
+        cungName: dh.cung?.Name ?? '', chiName: dh.chiName,
+        canCung: T_CAN[canIdx] ?? '',
+        trangSinh: dh.cung?.TrangSinh ?? '',
+        locNhap: dh.cung?.LocNhap, quyenNhap: dh.cung?.QuyenNhap,
+        khoaNhap: dh.cung?.KhoaNhap, kyNhap: dh.cung?.KyNhap,
+        dhTuHoa: canIdx >= 0 ? computeTuHoaForCan(canIdx, rawCungs) : null,
+        chinhTinh: (dh.cung?.ChinhTinh ?? []).map((s: any) => s.Name),
+        saotot:    (dh.cung?.Saotot   ?? []).slice(0, 8).map((s: any) => s.Name),
+        saoxau:    (dh.cung?.Saoxau   ?? []).slice(0, 5).map((s: any) => s.Name),
+      }
+    }),
+    tieuHan: tieuHan.map(th => {
+      const thCanIdx = ((th.years[0] + (th.age ?? 0) - 4) % 10 + 10) % 10
+      return {
+        yearChi: th.yearChi, chiName: th.chiName,
+        cungName: th.cung?.Name ?? '', years: th.years,
+        locNhap: th.cung?.LocNhap, quyenNhap: th.cung?.QuyenNhap,
+        khoaNhap: th.cung?.KhoaNhap, kyNhap: th.cung?.KyNhap,
+        thTuHoa: computeTuHoaForCan(thCanIdx, rawCungs),
+        chinhTinh: (th.cung?.ChinhTinh ?? []).map((s: any) => s.Name),
+        saotot: (th.cung?.Saotot ?? []).slice(0, 6).map((s: any) => s.Name),
+        saoxau: (th.cung?.Saoxau ?? []).slice(0, 4).map((s: any) => s.Name),
+      }
+    }),
     currentYear,
+    annualStars,
+    menhRelations,
+    tuHoaDH,
+    tuHoaNam,
+    cachCuc,
     currentDH: currentDH ? {
       startAge: currentDH.startAge, endAge: currentDH.endAge,
       cungName: currentDH.cung?.Name ?? '',
+      canCung: T_CAN[currentDH.cung?.CanCung ?? -1] ?? '',
       startYear: form.year + currentDH.startAge - 1,
       endYear:   form.year + currentDH.startAge + 8,
     } : null,

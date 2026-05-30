@@ -132,10 +132,17 @@ const SYSTEM_INSTRUCTION = `Bạn là Tử Vi sư Việt Nam chuyên nghiệp. N
 
 // ─── Full prompt (17 sections) ────────────────────────────────────────────────
 
+function fmtTuHoa(th: any): string {
+  if (!th) return '—'
+  return `Can ${th.can}: ${th.loc.star}→Lộc[${th.loc.palace}] | ${th.quyen.star}→Quyền[${th.quyen.palace}] | ${th.khoa.star}→Khoa[${th.khoa.palace}] | ${th.ky.star}→Kỵ[${th.ky.palace}]`
+}
+
 function buildFullPrompt(d: any): string {
-  const { form, info, danNap, palaces, daiHan, tieuHan, currentYear, currentDH, currentTH } = d
+  const { form, info, danNap, palaces, daiHan, tieuHan, currentYear, currentDH, currentTH,
+          annualStars, menhRelations, tuHoaDH, tuHoaNam, cachCuc } = d
   const age = currentYear - form.year
 
+  // 12 cung — include annual stars per palace
   const palaceLines = palaces.map((p: any) => {
     const chinh = p.chinhTinh.map((s: any) => `${s.name}(${s.status || '-'})`).join(', ') || 'Trống'
     const tot = p.saotot.map((s: any) => s.name).join(', ') || '-'
@@ -147,41 +154,77 @@ function buildFullPrompt(d: any): string {
       p.kyNhap    && `HóaKỵ←${p.kyNhap}`,
     ].filter(Boolean).join(', ')
     const flags = [p.isLife && 'MỆNH', p.isBody && 'THÂN', p.tuan && 'Tuần', p.triet && 'Triệt'].filter(Boolean).join('/')
-    return `▸ ${p.name}(${p.canCung})${flags ? ` [${flags}]` : ''}: ${chinh} | cát:${tot} | hung:${xau}${hoa ? ` | ${hoa}` : ''} | ${p.trangSinh}`
+    const annStar = p.annualStars?.length ? ` | lưuniên:${p.annualStars.join(',')}` : ''
+    return `▸ ${p.name}(${p.canCung})${flags ? ` [${flags}]` : ''}: ${chinh} | cát:${tot} | hung:${xau}${hoa ? ` | ${hoa}` : ''}${annStar} | ${p.trangSinh}`
   }).join('\n')
 
+  // Đại Hạn — include each hạn's own Tứ Hóa (from canCung)
   const dhLines = daiHan.map((dh: any, i: number) => {
     const sy = form.year + dh.startAge - 1
     const cur = age >= dh.startAge && age <= dh.endAge
-    const hoa = [
+    const hoaBM = [
       dh.locNhap && `Lộc←${dh.locNhap}`, dh.quyenNhap && `Quyền←${dh.quyenNhap}`,
       dh.khoaNhap && `Khoa←${dh.khoaNhap}`, dh.kyNhap && `Kỵ←${dh.kyNhap}`,
     ].filter(Boolean).join(', ')
-    return `ĐH${i + 1}[${dh.startAge}-${dh.endAge}t|${sy}-${sy + 9}]${cur ? '◄NẠY' : ''} ${dh.cungName}(${dh.chiName}) ${dh.trangSinh}: ${dh.chinhTinh.join(',') || 'Trống'} | hung:${dh.saoxau.join(',') || '-'}${hoa ? ` | ${hoa}` : ''}`
+    const hoaDH = dh.dhTuHoa ? `\n    4HóaDH(${fmtTuHoa(dh.dhTuHoa)})` : ''
+    return `ĐH${i + 1}[${dh.startAge}-${dh.endAge}t|${sy}-${sy + 9}]${cur ? '◄ĐANG CHẠY' : ''} ${dh.cungName}(${dh.chiName}) Can ${dh.canCung} ${dh.trangSinh}: ${dh.chinhTinh.join(',') || 'Trống'} | hung:${dh.saoxau.join(',') || '-'}${hoaBM ? ` | BM: ${hoaBM}` : ''}${hoaDH}`
   }).join('\n')
 
+  // Tiểu Hạn — include each hạn's Tứ Hóa
   const thLines = tieuHan.map((th: any) => {
     const cur = th.years.includes(currentYear)
-    const hoa = [
+    const hoaBM = [
       th.locNhap && `Lộc←${th.locNhap}`, th.quyenNhap && `Quyền←${th.quyenNhap}`,
       th.khoaNhap && `Khoa←${th.khoaNhap}`, th.kyNhap && `Kỵ←${th.kyNhap}`,
     ].filter(Boolean).join(', ')
-    return `${th.yearChi}${cur ? '◄NĂM NAY' : ''}: ${th.cungName} | ${th.chinhTinh.join(',') || 'Trống'} | hung:${th.saoxau?.join(',') || '-'}${hoa ? ` | ${hoa}` : ''}`
+    const hoaTH = th.thTuHoa ? ` | 4HóaTH(${fmtTuHoa(th.thTuHoa)})` : ''
+    return `${th.yearChi}${cur ? '◄NĂM NAY' : ''}: ${th.cungName} | ${th.chinhTinh.join(',') || 'Trống'} | hung:${th.saoxau?.join(',') || '-'}${hoaBM ? ` | BM: ${hoaBM}` : ''}${hoaTH}`
   }).join('\n')
+
+  // Cách Cục
+  const cachCucLine = cachCuc?.length
+    ? cachCuc.join('\n')
+    : 'Chưa phát hiện cách cục đặc biệt rõ ràng — AI tự nhận diện từ dữ liệu.'
+
+  // Tam hợp / xung Mệnh
+  const tamHopLine = menhRelations
+    ? `Mệnh(${menhRelations.menhChi}) tam hợp: ${menhRelations.tamHop.map((r: any) => `${r.cungName}(${r.chi})`).join(', ')}` +
+      (menhRelations.xung ? ` | xung: ${menhRelations.xung.cungName}(${menhRelations.xung.chi})` : '')
+    : ''
+
+  // Annual stars summary
+  const annualLine = Object.entries(annualStars ?? {})
+    .map(([cung, stars]: [string, any]) => `${cung}: ${(stars as string[]).join(',')}`)
+    .join(' | ') || '—'
 
   return `[LÁ SỐ] ${form.name} | ${form.gender} | ${form.day}/${form.month}/${form.year}${form.isLunar ? ' ÂL' : ''} | ${info.nam} | giờ ${info.gio} | ${info.amDuong} | Cục ${info.cuc} | ${danNap}
 Chủ Mệnh ${info.chuMenh}, Chủ Thân ${info.chuThan}, ${info.thanCu}. Tuổi ${age} (${currentYear}).
 
+[CÁCH CỤC PHÁT HIỆN]
+${cachCucLine}
+
+[TAM HỢP / XUNG CUNG MỆNH]
+${tamHopLine}
+
+[THÁI TUẾ & SAO LƯU NIÊN NĂM ${currentYear}]
+${annualLine}
+
+[TỨ HÓA NĂM ${currentYear}]
+${fmtTuHoa(tuHoaNam)}
+
+[TỨ HÓA ĐẠI HẠN HIỆN TẠI${currentDH ? ` — ${currentDH.cungName} Can ${currentDH.canCung}` : ''}]
+${fmtTuHoa(tuHoaDH)}
+
 [12 CUNG]
 ${palaceLines}
 
-[ĐẠI HẠN]
+[ĐẠI HẠN] (mỗi hạn có Tứ Hóa riêng theo Can cung hạn)
 ${dhLines}
 
-[TIỂU HẠN]
+[TIỂU HẠN] (mỗi hạn có Tứ Hóa riêng theo Can chi năm)
 ${thLines}
 
-Viết bài phân tích hoàn chỉnh 17 mục dưới đây — mỗi mục tối thiểu 6–8 câu, dẫn chứng sao và trạng thái cụ thể, không nói chung chung:
+Viết bài phân tích hoàn chỉnh 17 mục — mỗi mục tối thiểu 6–8 câu, dẫn chứng tên sao + trạng thái + cung cụ thể. Dùng đầy đủ dữ liệu Cách Cục, Tam Hợp/Xung, Thái Tuế, Tứ Hóa Năm và Tứ Hóa Đại Hạn đã cung cấp:
 
 ## 🌟 TỔNG QUAN LÁ SỐ
 ## ⭐ CÁCH CỤC & HÌNH THÁI LÁ SỐ
@@ -194,10 +237,10 @@ Viết bài phân tích hoàn chỉnh 17 mục dưới đây — mỗi mục t�
 ## 🍀 PHÚC ĐỨC & TÂM LINH (Phúc Đức)
 ## ✈️ XÃ HỘI & DI CHUYỂN (Thiên Di / Nô Bộc)
 ## 🏥 SỨC KHỎE (Tật Ách)
-## 🔗 TỨ HÓA & TƯƠNG TÁC ĐẶC BIỆT
-## 📅 ĐẠI HẠN HIỆN TẠI ${currentDH ? `(${currentDH.startAge}–${currentDH.endAge} tuổi — ${currentDH.cungName})` : ''}
-## 📆 VẬN NĂM ${currentYear}${currentTH ? ` — Tiểu Hạn ${currentTH.cungName}` : ''}
-## 📊 LỘ TRÌNH TOÀN BỘ ĐẠI HẠN
+## 🔗 TỨ HÓA BẢN MỆNH & TƯƠNG TÁC ĐẶC BIỆT
+## 📅 ĐẠI HẠN HIỆN TẠI ${currentDH ? `(${currentDH.startAge}–${currentDH.endAge} tuổi — ${currentDH.cungName} Can ${currentDH.canCung})` : ''}
+## 📆 VẬN NĂM ${currentYear}${currentTH ? ` — Tiểu Hạn ${currentTH.cungName}` : ''} (phân tích Tứ Hóa năm + Thái Tuế)
+## 📊 LỘ TRÌNH TOÀN BỘ ĐẠI HẠN (nhận xét từng hạn dựa trên 4Hóa DH)
 ## ⚠️ TUỔI & GIAI ĐOẠN CẦN ĐỀ PHÒNG
 ## 💡 KẾT LUẬN & LỜI KHUYÊN CHIẾN LƯỢC`
 }
