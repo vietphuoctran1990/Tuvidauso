@@ -349,28 +349,9 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
   const [done, setDone] = useState(false)
   const [toast, setToast] = useState('')
   const [targetYear, setTargetYear] = useState<number>(initialYear ?? new Date().getFullYear())
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('deepseek_api_key') || '')
-  const [keyInput, setKeyInput] = useState('')
-  const [showKeyInput, setShowKeyInput] = useState(false)
   useEffect(() => {
     if (initialYear !== undefined) setTargetYear(initialYear)
   }, [initialYear])
-
-  function saveKey() {
-    const k = keyInput.trim()
-    if (!k) return
-    localStorage.setItem('deepseek_api_key', k)
-    setApiKey(k)
-    setKeyInput('')
-    setShowKeyInput(false)
-  }
-
-  function clearKey() {
-    localStorage.removeItem('deepseek_api_key')
-    setApiKey('')
-    setShowKeyInput(false)
-    setText(''); setDone(false); setError('')
-  }
 
   const sectionMatches = text.match(/^## .+/gm) ?? []
   const sectionCount = sectionMatches.length
@@ -405,7 +386,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
       const res = await fetch('/api/interpret', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chartData, deepseekKey: apiKey }),
+        body: JSON.stringify({ chartData }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }))
@@ -444,60 +425,28 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
           <h2>Phân Tích Lá Số</h2>
           <p>Luận giải lá số của <strong>{form.name || 'bạn'}</strong> — tính cách, sự nghiệp, tài chính, tình duyên, sức khỏe, đại hạn và tiểu hạn.</p>
 
-          {(!apiKey || showKeyInput) ? (
-            <div className="api-key-form">
-              <div className="api-key-form-title">🔑 {apiKey ? 'Cập nhật' : 'Nhập'} DeepSeek API Key</div>
-              <p className="api-key-form-note">Lấy key miễn phí tại <strong>platform.deepseek.com</strong> → API Keys</p>
-              <div className="api-key-input-row">
-                <input
-                  className="api-key-input"
-                  type="password"
-                  placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
-                  value={keyInput}
-                  onChange={e => setKeyInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && saveKey()}
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-                <button className="api-key-save-btn" onClick={saveKey} disabled={!keyInput.trim()}>
-                  Lưu
-                </button>
-              </div>
-              {apiKey && (
-                <button className="api-key-cancel-btn" onClick={() => { setShowKeyInput(false); setKeyInput('') }}>
-                  Huỷ
-                </button>
-              )}
-            </div>
-          ) : (
-            <>
-              <div className="year-picker-row">
-                <label className="year-picker-label">Xem vận năm:</label>
-                <select
-                  className="year-picker-select"
-                  value={targetYear}
-                  onChange={e => {
-                    const y = Number(e.target.value)
-                    setTargetYear(y)
-                    onYearChange?.(y)
-                  }}
-                >
-                  {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
-                </select>
-              </div>
+          <div className="year-picker-row">
+            <label className="year-picker-label">Xem vận năm:</label>
+            <select
+              className="year-picker-select"
+              value={targetYear}
+              onChange={e => {
+                const y = Number(e.target.value)
+                setTargetYear(y)
+                onYearChange?.(y)
+              }}
+            >
+              {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </div>
 
-              <button
-                className="btn-analyze btn-analyze-deepseek"
-                onClick={e => { createRipple(e); burstParticles(e, 16); handleAnalyze() }}
-              >
-                🐋 Phân tích chuyên sâu
-              </button>
-              <p className="is-note">Năm {targetYear} · DeepSeek V3 · 17 mục chi tiết</p>
-              <button className="btn-change-key" onClick={() => { setShowKeyInput(true); setKeyInput('') }}>
-                🔑 Đổi API key
-              </button>
-            </>
-          )}
+          <button
+            className="btn-analyze btn-analyze-deepseek"
+            onClick={e => { createRipple(e); burstParticles(e, 16); handleAnalyze() }}
+          >
+            🐋 Phân tích chuyên sâu
+          </button>
+          <p className="is-note">Năm {targetYear} · DeepSeek V3 · 17 mục chi tiết</p>
         </div>
       )}
 
@@ -542,12 +491,6 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
             onClick={e => { createRipple(e); handleAnalyze() }}
           >
             🔄 Phân tích lại
-          </button>
-          <button
-            className="btn-change-key btn-switch-provider"
-            onClick={e => { createRipple(e); clearKey() }}
-          >
-            🔑 Đổi API key
           </button>
           {done && error === '' && (
             <>
