@@ -62,67 +62,84 @@ export default async function handler(request: Request): Promise<Response> {
   })
 }
 
-// ─── DeepSeek streaming ───────────────────────────────────────────────────────
+// ─── DeepSeek streaming with auto-continuation when output is cut off ────────
 
 async function runDeepSeek(apiKey: string, chartData: any, emit: (t: string) => void): Promise<void> {
-  const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
-      messages: [
-        { role: 'system', content: SYSTEM_INSTRUCTION },
-        { role: 'user', content: buildFullPrompt(chartData) },
-      ],
-      max_tokens: DEEPSEEK_MAX_TOKENS,
-      temperature: 0.75,
-      stream: true,
-    }),
-  })
+  const messages: { role: string; content: string }[] = [
+    { role: 'system', content: SYSTEM_INSTRUCTION },
+    { role: 'user', content: buildFullPrompt(chartData) },
+  ]
 
-  if (!res.ok || !res.body) {
-    const errText = await res.text().catch(() => '')
-    let errMsg = ''
-    try { errMsg = JSON.parse(errText)?.error?.message ?? '' } catch { /* */ }
-    const low = errMsg.toLowerCase()
-    if (res.status === 401 || low.includes('invalid api key') || low.includes('authentication')) {
-      emit('[Lỗi: API key không hợp lệ. Vào ứng dụng → nhấn "Đổi API key" để cập nhật.]')
-      return
-    }
-    if (res.status === 402 || low.includes('insufficient balance')) {
-      emit('[Lỗi: Tài khoản DeepSeek hết số dư. Vui lòng nạp thêm tại platform.deepseek.com.]')
-      return
-    }
-    if (res.status === 429 || low.includes('rate limit') || low.includes('quota')) {
-      emit('[Lỗi: Đã vượt giới hạn API. Vui lòng thử lại sau vài giây.]')
-      return
-    }
-    emit(`[Lỗi DeepSeek ${res.status}: ${errMsg || errText}]`)
-    return
-  }
+  for (let pass = 0; pass < 4; pass++) {
+    const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: DEEPSEEK_MODEL,
+        messages,
+        max_tokens: DEEPSEEK_MAX_TOKENS,
+        temperature: 0.75,
+        stream: true,
+      }),
+    })
 
-  const decoder = new TextDecoder()
-  const reader = res.body.getReader()
-  let buf = ''
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
-        const data = line.slice(6).trim()
-        if (!data || data === '[DONE]') continue
-        try {
-          const text: string = JSON.parse(data)?.choices?.[0]?.delta?.content ?? ''
-          if (text) emit(text)
-        } catch { /* ignore malformed SSE */ }
+    if (!res.ok || !res.body) {
+      const errText = await res.text().catch(() => '')
+      let errMsg = ''
+      try { errMsg = JSON.parse(errText)?.error?.message ?? '' } catch { /* */ }
+      const low = errMsg.toLowerCase()
+      if (res.status === 401 || low.includes('invalid api key') || low.includes('authentication')) {
+        emit('[Lỗi: API key không hợp lệ. Vào ứng dụng → nhấn "Đổi API key" để cập nhật.]')
+        return
       }
+      if (res.status === 402 || low.includes('insufficient balance')) {
+        emit('[Lỗi: Tài khoản DeepSeek hết số dư. Vui lòng nạp thêm tại platform.deepseek.com.]')
+        return
+      }
+      if (res.status === 429 || low.includes('rate limit') || low.includes('quota')) {
+        emit('[Lỗi: Đã vượt giới hạn API. Vui lòng thử lại sau vài giây.]')
+        return
+      }
+      emit(`[Lỗi DeepSeek ${res.status}: ${errMsg || errText}]`)
+      return
     }
-  } finally {
-    reader.releaseLock()
+
+    const decoder = new TextDecoder()
+    const reader = res.body.getReader()
+    let buf = ''
+    let passText = ''
+    let finishReason = ''
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const data = line.slice(6).trim()
+          if (!data || data === '[DONE]') continue
+          try {
+            const parsed = JSON.parse(data)
+            const text: string = parsed?.choices?.[0]?.delta?.content ?? ''
+            if (text) { emit(text); passText += text }
+            const fr: string = parsed?.choices?.[0]?.finish_reason ?? ''
+            if (fr) finishReason = fr
+          } catch { /* ignore malformed SSE */ }
+        }
+      }
+    } finally {
+      reader.releaseLock()
+    }
+
+    // Natural stop — done
+    if (finishReason !== 'length') break
+
+    // Hit token limit — ask to continue from where it stopped
+    messages.push({ role: 'assistant', content: passText })
+    messages.push({ role: 'user', content: 'Tiếp tục viết các mục còn lại từ chỗ vừa dừng. Không lặp lại nội dung đã có.' })
   }
 }
 
