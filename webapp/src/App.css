@@ -819,6 +819,64 @@ body {
 }
 
 .is-icon { font-size: 54px; margin-bottom: 18px; display: block; animation: symbolPulse 3s ease-in-out infinite; }
+.deepseek-icon { font-size: 56px; animation: symbolPulse 3s ease-in-out infinite; }
+
+/* DeepSeek analyze button */
+.btn-analyze-deepseek {
+  background: linear-gradient(135deg, rgba(19,184,168,.14), rgba(13,148,136,.08)) !important;
+  border-color: #0d9488 !important; color: #0f766e !important;
+  box-shadow: 0 0 18px rgba(13,148,136,.18) !important;
+}
+[data-theme="dark"] .btn-analyze-deepseek {
+  background: linear-gradient(135deg, rgba(45,212,191,.22), rgba(20,184,166,.12)) !important;
+  border-color: #2dd4bf !important; color: #2dd4bf !important;
+  box-shadow: 0 0 20px rgba(45,212,191,.24) !important;
+}
+.btn-analyze-deepseek::after { background: linear-gradient(90deg, transparent, rgba(13,148,136,.15), transparent) !important; }
+
+/* DeepSeek result badge */
+.badge-deepseek { background: rgba(13,148,136,.10) !important; border-color: rgba(13,148,136,.30) !important; color: #0f766e !important; }
+[data-theme="dark"] .badge-deepseek { background: rgba(45,212,191,.14) !important; border-color: rgba(45,212,191,.35) !important; color: #2dd4bf !important; }
+
+/* API key input form */
+.api-key-form {
+  width: 100%; max-width: 440px; margin: 0 auto 24px;
+  background: var(--surf-2); border: 1px solid var(--border-dim);
+  border-radius: var(--radius-md); padding: 20px 20px 16px;
+  text-align: left;
+}
+.api-key-form-title { font-family: var(--font-title); font-size: 13px; font-weight: 700; color: var(--text-1); margin-bottom: 8px; letter-spacing: .5px; }
+.api-key-form-note { font-size: 12px; color: var(--text-3); margin-bottom: 14px; line-height: 1.5; }
+.api-key-input-row { display: flex; gap: 8px; }
+.api-key-input {
+  flex: 1; padding: 10px 13px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-mid); background: var(--surf-1);
+  color: var(--text-1); font-size: 13px; font-family: monospace;
+  outline: none; transition: border-color .2s;
+}
+.api-key-input:focus { border-color: #0d9488; }
+.api-key-save-btn {
+  padding: 10px 18px; border-radius: var(--radius-sm);
+  background: #0d9488; border: none; color: #fff;
+  font-size: 13px; font-weight: 600; cursor: pointer; transition: all .2s; white-space: nowrap;
+}
+.api-key-save-btn:hover { background: #0f766e; transform: translateY(-1px); }
+.api-key-save-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+.api-key-cancel-btn {
+  margin-top: 10px; padding: 6px 14px; border-radius: 14px;
+  background: transparent; border: 1px solid var(--border-dim);
+  color: var(--text-3); font-size: 12px; cursor: pointer; transition: all .2s;
+}
+.api-key-cancel-btn:hover { border-color: var(--border-mid); color: var(--text-2); }
+
+/* Change key button */
+.btn-change-key {
+  margin-top: 10px; padding: 6px 14px; border-radius: 14px;
+  background: transparent; border: 1px solid var(--border-dim);
+  color: var(--text-3); font-size: 11px; cursor: pointer; transition: all .2s; display: block; margin-left: auto; margin-right: auto;
+}
+.btn-change-key:hover { border-color: #0d9488; color: #0d9488; }
+
 .gemini-icon {
   font-size: 64px;
   background: linear-gradient(135deg, #4285f4 0%, #1a73e8 35%, #8ab4f8 65%, #4285f4 100%);

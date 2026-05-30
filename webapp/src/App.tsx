@@ -349,18 +349,28 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
   const [done, setDone] = useState(false)
   const [toast, setToast] = useState('')
   const [targetYear, setTargetYear] = useState<number>(initialYear ?? new Date().getFullYear())
-  const [provider, setProvider] = useState<'gemini' | 'groq'>('gemini')
-  const [cooldown, setCooldown] = useState(0)
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('deepseek_api_key') || '')
+  const [keyInput, setKeyInput] = useState('')
+  const [showKeyInput, setShowKeyInput] = useState(false)
   useEffect(() => {
     if (initialYear !== undefined) setTargetYear(initialYear)
   }, [initialYear])
 
-  // Groq free-tier TPM resets on a rolling 60s window
-  useEffect(() => {
-    if (cooldown <= 0) return
-    const id = setInterval(() => setCooldown(c => (c <= 1 ? 0 : c - 1)), 1000)
-    return () => clearInterval(id)
-  }, [cooldown])
+  function saveKey() {
+    const k = keyInput.trim()
+    if (!k) return
+    localStorage.setItem('deepseek_api_key', k)
+    setApiKey(k)
+    setKeyInput('')
+    setShowKeyInput(false)
+  }
+
+  function clearKey() {
+    localStorage.removeItem('deepseek_api_key')
+    setApiKey('')
+    setShowKeyInput(false)
+    setText(''); setDone(false); setError('')
+  }
 
   const sectionMatches = text.match(/^## .+/gm) ?? []
   const sectionCount = sectionMatches.length
@@ -395,7 +405,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
       const res = await fetch('/api/interpret', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chartData, provider }),
+        body: JSON.stringify({ chartData, deepseekKey: apiKey }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }))
@@ -411,7 +421,6 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
         setText(prev => prev + decoder.decode(value))
       }
       setDone(true)
-      if (provider === 'groq') setCooldown(60)
     } catch (e: any) {
       setError(e.message || 'Lỗi không xác định.')
     } finally {
@@ -420,7 +429,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
   }
 
   function handleAnalyze() {
-    if (loading || cooldown > 0) return
+    if (loading) return
     startAiAnalysis()
   }
 
@@ -431,55 +440,64 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
     <div className="interpret-tab">
       {!text && !loading && !error && (
         <div className="interpret-start">
-          <div className="is-icon gemini-icon">✦</div>
+          <div className="is-icon deepseek-icon">🐋</div>
           <h2>Phân Tích Lá Số</h2>
           <p>Luận giải lá số của <strong>{form.name || 'bạn'}</strong> — tính cách, sự nghiệp, tài chính, tình duyên, sức khỏe, đại hạn và tiểu hạn.</p>
 
-          <div className="provider-selector">
-            <button
-              className={`provider-btn${provider === 'gemini' ? ' provider-active provider-gemini-active' : ''}`}
-              onClick={() => { setProvider('gemini'); setCooldown(0) }}
-            >
-              <span className="provider-icon gemini-icon">✦</span>
-              <span className="provider-label">Gemini AI</span>
-              <span className="provider-desc">Chuyên sâu · 17 mục · ~20–30s</span>
-            </button>
-            <button
-              className={`provider-btn${provider === 'groq' ? ' provider-active provider-groq-active' : ''}`}
-              onClick={() => setProvider('groq')}
-            >
-              <span className="provider-icon">⚡</span>
-              <span className="provider-label">Groq AI</span>
-              <span className="provider-desc">Nhanh · Tiết kiệm quota · ~30–40s</span>
-            </button>
-          </div>
+          {(!apiKey || showKeyInput) ? (
+            <div className="api-key-form">
+              <div className="api-key-form-title">🔑 {apiKey ? 'Cập nhật' : 'Nhập'} DeepSeek API Key</div>
+              <p className="api-key-form-note">Lấy key miễn phí tại <strong>platform.deepseek.com</strong> → API Keys</p>
+              <div className="api-key-input-row">
+                <input
+                  className="api-key-input"
+                  type="password"
+                  placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+                  value={keyInput}
+                  onChange={e => setKeyInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && saveKey()}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <button className="api-key-save-btn" onClick={saveKey} disabled={!keyInput.trim()}>
+                  Lưu
+                </button>
+              </div>
+              {apiKey && (
+                <button className="api-key-cancel-btn" onClick={() => { setShowKeyInput(false); setKeyInput('') }}>
+                  Huỷ
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="year-picker-row">
+                <label className="year-picker-label">Xem vận năm:</label>
+                <select
+                  className="year-picker-select"
+                  value={targetYear}
+                  onChange={e => {
+                    const y = Number(e.target.value)
+                    setTargetYear(y)
+                    onYearChange?.(y)
+                  }}
+                >
+                  {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+              </div>
 
-          <div className="year-picker-row">
-            <label className="year-picker-label">Xem vận năm:</label>
-            <select
-              className="year-picker-select"
-              value={targetYear}
-              onChange={e => {
-                const y = Number(e.target.value)
-                setTargetYear(y)
-                onYearChange?.(y)
-              }}
-            >
-              {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
-            </select>
-          </div>
-
-          <button
-            className={`btn-analyze${provider === 'groq' ? ' btn-analyze-groq' : ''}`}
-            onClick={e => { createRipple(e); burstParticles(e, 16); handleAnalyze() }}
-          >
-            {provider === 'groq' ? '⚡ Phân tích nhanh' : '✦ Phân tích chuyên sâu'}
-          </button>
-          <p className="is-note">
-            {provider === 'groq'
-              ? `Năm ${targetYear} · Groq Llama 3.3 · Tiết kiệm quota Gemini`
-              : `Năm ${targetYear} · Gemini 2.0 Flash · Phân tích chi tiết đầy đủ`}
-          </p>
+              <button
+                className="btn-analyze btn-analyze-deepseek"
+                onClick={e => { createRipple(e); burstParticles(e, 16); handleAnalyze() }}
+              >
+                🐋 Phân tích chuyên sâu
+              </button>
+              <p className="is-note">Năm {targetYear} · DeepSeek V3 · 17 mục chi tiết</p>
+              <button className="btn-change-key" onClick={() => { setShowKeyInput(true); setKeyInput('') }}>
+                🔑 Đổi API key
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -487,7 +505,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
         <div className="interpret-loading">
           <div className="spin-container"><span className="spin-sym">☯</span></div>
           <p>Đang phân tích lá số tử vi...</p>
-          <p className="load-sub">{provider === 'groq' ? 'Groq đang xử lý (2 lượt: bản mệnh → vận hạn)' : 'Gemini đang đọc các sao và tổng hợp kết quả'}</p>
+          <p className="load-sub">DeepSeek V3 đang phân tích các sao và tổng hợp kết quả...</p>
         </div>
       )}
 
@@ -499,8 +517,8 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
 
       {text && (
         <div className="interpret-result">
-          <div className={`interpret-year-badge${provider === 'groq' ? ' badge-groq' : ''}`}>
-            {provider === 'groq' ? '⚡ Groq AI' : '✦ Gemini AI'} · Năm {targetYear}
+          <div className="interpret-year-badge badge-deepseek">
+            🐋 DeepSeek V3 · Năm {targetYear}
           </div>
           <MdText text={text} />
           {loading && <span className="cursor-blink">▌</span>}
@@ -510,8 +528,8 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
       {error && (
         <div className="interpret-error">
           <strong>Lỗi:</strong> {error}<br />
-          {error.includes('GROQ_API_KEY') && (
-            <span>Vui lòng thêm <code>GROQ_API_KEY</code> vào Environment Variables trên Netlify.</span>
+          {(error.includes('API key') || error.includes('authentication')) && (
+            <span>Nhấn <strong>Đổi API key</strong> bên dưới để cập nhật key.</span>
           )}
         </div>
       )}
@@ -520,17 +538,16 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
         <div className="interpret-actions">
           <button
             className="btn-reanalyze"
-            disabled={cooldown > 0 || loading}
-            title={cooldown > 0 ? 'Chờ giới hạn Groq TPM reset' : ''}
+            disabled={loading}
             onClick={e => { createRipple(e); handleAnalyze() }}
           >
-            {cooldown > 0 ? `🔄 Phân tích lại (${cooldown}s)` : '🔄 Phân tích lại'}
+            🔄 Phân tích lại
           </button>
           <button
-            className={`btn-switch-provider${provider === 'groq' ? ' btn-switch-to-gemini' : ' btn-switch-to-groq'}`}
-            onClick={e => { createRipple(e); setProvider(p => p === 'gemini' ? 'groq' : 'gemini'); setCooldown(0); setText(''); setDone(false); setError('') }}
+            className="btn-change-key btn-switch-provider"
+            onClick={e => { createRipple(e); clearKey() }}
           >
-            {provider === 'groq' ? '✦ Dùng Gemini' : '⚡ Dùng Groq'}
+            🔑 Đổi API key
           </button>
           {done && error === '' && (
             <>
