@@ -2,7 +2,7 @@
 //
 // API key priority: request body `deepseekKey` (user-entered in app) → DEEPSEEK_API_KEY env var
 
-const DEEPSEEK_MODEL = 'deepseek-chat'
+const DEEPSEEK_MODEL = 'deepseek-v4-flash'
 const DEEPSEEK_MAX_TOKENS = 8000
 
 export default async function handler(request: Request): Promise<Response> {
