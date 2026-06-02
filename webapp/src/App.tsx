@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo, memo } from 'react'
 import { generateLaSo } from 'tuvi-neo'
 import type { LaSoResult } from 'tuvi-neo'
 import { STAR_INFO, PALACE_INFO, TRANG_SINH_INFO } from './starInfo'
@@ -100,6 +100,9 @@ const ANNUAL_STARS: AnnualStarConfig[] = [
   { name: 'Phúc Đức',    icon: '✿', color: '#8b5cf6', offset: 9 },
   { name: 'Điếu Khách',  icon: '♦', color: '#64748b', offset: 10 },
 ]
+
+// Year options for selects (1950–2080) — constant, built once
+const YEAR_OPTIONS: number[] = Array.from({ length: 131 }, (_, i) => 1950 + i)
 
 type Tab = 'laso' | 'daihan' | 'tieuHan' | 'ai'
 
@@ -467,7 +470,12 @@ function MdText({ text }: { text: string }) {
 }
 
 function bold(s: string): string {
-  return s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+  // Escape HTML first (AI-generated text), then apply **bold** markdown
+  const esc = s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  return esc.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
 }
 
 // ── Star Detail Modal ───────────────────────────────────────────────────────
@@ -584,9 +592,6 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
     startAiAnalysis()
   }
 
-  const yearOptions: number[] = []
-  for (let y = 1950; y <= 2080; y++) yearOptions.push(y)
-
   return (
     <div className="interpret-tab">
       {!text && !loading && !error && (
@@ -606,7 +611,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
                 onYearChange?.(y)
               }}
             >
-              {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+              {YEAR_OPTIONS.map(y => <option key={y} value={y}>{y}</option>)}
             </select>
           </div>
 
@@ -677,7 +682,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
 }
 
 // ── StarBadge ───────────────────────────────────────────────────────────────
-function StarBadge({ name, status, hanh, isHoa, onClick }: {
+const StarBadge = memo(function StarBadge({ name, status, hanh, isHoa, onClick }: {
   name: string; status?: string; hanh?: number; isHoa?: boolean
   onClick: (e: React.MouseEvent) => void
 }) {
@@ -694,11 +699,11 @@ function StarBadge({ name, status, hanh, isHoa, onClick }: {
       {s && <sup className="star-status" style={{ color: s.color }}>{s.label}</sup>}
     </span>
   )
-}
+})
 
 // ── Palace Cell ─────────────────────────────────────────────────────────────
-function PalaceCell({ cung, isSelected, onClick, onStarClick, palaceHighlight, annualStars, showAnnualStars }: {
-  cung: any; isSelected: boolean; onClick: () => void
+const PalaceCell = memo(function PalaceCell({ cung, isSelected, onClick, onStarClick, palaceHighlight, annualStars, showAnnualStars }: {
+  cung: any; isSelected: boolean; onClick: (cung: any) => void
   onStarClick: (name: string, status?: string, hanh?: number) => void
   palaceHighlight?: 'tamhop' | 'xung'
   annualStars?: { name: string; icon: string; color: string }[]
@@ -726,7 +731,7 @@ function PalaceCell({ cung, isSelected, onClick, onStarClick, palaceHighlight, a
     <div
       className={`palace-cell elem-${primaryElem}${isLife ? ' palace-life' : ''}${isBody ? ' palace-body' : ''} ${highlightClass}`}
       style={{ gridRow: row, gridColumn: col }}
-      onClick={onClick}
+      onClick={() => onClick(cung)}
     >
       <div className="pc-header">
         <span className="pc-name">{cung.Name}</span>
@@ -782,10 +787,10 @@ function PalaceCell({ cung, isSelected, onClick, onStarClick, palaceHighlight, a
       )}
     </div>
   )
-}
+})
 
 // ── Chart Center ─────────────────────────────────────────────────────────────
-function ChartCenter({ info, form, allCungs }: { info: any; form: FormData; allCungs: any[] }) {
+const ChartCenter = memo(function ChartCenter({ info, form, allCungs }: { info: any; form: FormData; allCungs: any[] }) {
   // Compute stats
   let goodCount = 0, badCount = 0, locCount = 0, kyCount = 0
   for (const c of allCungs) {
@@ -824,7 +829,7 @@ function ChartCenter({ info, form, allCungs }: { info: any; form: FormData; allC
       <div className="cc-hint">Chạm vào cung hoặc sao để xem chú giải</div>
     </div>
   )
-}
+})
 
 // ── Palace Detail Panel ─────────────────────────────────────────────────────
 function PalacePanel({ cung, onClose }: { cung: any; onClose: () => void }) {
@@ -941,8 +946,8 @@ function DaiHanTab({ result, form, onStarClick, onPalaceClick }: {
   onStarClick: (name: string, status?: string, hanh?: number) => void
   onPalaceClick: (cung: any) => void
 }) {
-  const list = getDaiHan(result)
-  const danNap = getDanNap(result)
+  const list = useMemo(() => getDaiHan(result), [result])
+  const danNap = useMemo(() => getDanNap(result), [result])
   const currentYear = new Date().getFullYear()
   const birthYear = form.year
 
@@ -1045,7 +1050,7 @@ function TieuHanTab({ result, form, onStarClick, onPalaceClick, onAnalyzeYear }:
   onPalaceClick: (cung: any) => void
   onAnalyzeYear?: (year: number) => void
 }) {
-  const list = getTieuHan(result, form.year)
+  const list = useMemo(() => getTieuHan(result, form.year), [result, form.year])
   const currentYear = new Date().getFullYear()
 
   return (
@@ -1176,33 +1181,38 @@ export default function App() {
     localStorage.setItem('tuvi-saved-charts', JSON.stringify(savedCharts))
   }, [savedCharts])
 
-  // Reset gridView on desktop
+  // Reset gridView on desktop (guard avoids redundant state sets during drag)
   useEffect(() => {
     function handleResize() {
-      if (window.innerWidth > 480) setGridView('grid')
+      if (window.innerWidth > 480) setGridView(v => (v === 'grid' ? v : 'grid'))
     }
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
   // Compute palace highlights (tam hop / xung) based on selectedCung
-  const palaceRelations: Record<string, 'tamhop' | 'xung'> = {}
-  if (selectedCung && result) {
-    const selChiIdx = D_CHI.indexOf(selectedCung.TieuHan)
-    if (selChiIdx >= 0) {
-      const { tamHop, xung } = computeRelations(selChiIdx)
-      for (const idx of tamHop) {
-        const chiName = D_CHI[idx]
-        palaceRelations[chiName] = 'tamhop'
-      }
-      if (xung !== null) {
-        palaceRelations[D_CHI[xung]] = 'xung'
+  const palaceRelations = useMemo<Record<string, 'tamhop' | 'xung'>>(() => {
+    const rel: Record<string, 'tamhop' | 'xung'> = {}
+    if (selectedCung && result) {
+      const selChiIdx = D_CHI.indexOf(selectedCung.TieuHan)
+      if (selChiIdx >= 0) {
+        const { tamHop, xung } = computeRelations(selChiIdx)
+        for (const idx of tamHop) rel[D_CHI[idx]] = 'tamhop'
+        if (xung !== null) rel[D_CHI[xung]] = 'xung'
       }
     }
-  }
+    return rel
+  }, [selectedCung, result])
 
   // Annual stars map
-  const annualStarsMap = result ? getAnnualStarsForYear(analysisYear) : {}
+  const annualStarsMap = useMemo(
+    () => (result ? getAnnualStarsForYear(analysisYear) : {}),
+    [result, analysisYear]
+  )
+
+  // Đại Hạn / Tiểu Hạn computed once per chart (heavy: scans all 12 palaces)
+  const daiHanList = useMemo(() => (result ? getDaiHan(result) : []), [result])
+  const tieuHanList = useMemo(() => (result ? getTieuHan(result, form.year) : []), [result, form.year])
 
   async function handleDownloadChart() {
     const el = document.querySelector('.chart-grid') as HTMLElement
@@ -1437,7 +1447,7 @@ export default function App() {
                       value={analysisYear}
                       onChange={e => setAnalysisYear(Number(e.target.value))}
                     >
-                      {Array.from({ length: 131 }, (_, i) => 1950 + i).map(y => (
+                      {YEAR_OPTIONS.map(y => (
                         <option key={y} value={y}>{y}</option>
                       ))}
                     </select>
@@ -1453,7 +1463,7 @@ export default function App() {
                       return (
                         <PalaceCell key={i} cung={cung}
                           isSelected={selectedCung?.TieuHan === cung.TieuHan}
-                          onClick={() => handlePalaceClick(cung)}
+                          onClick={handlePalaceClick}
                           onStarClick={handleStarClick}
                           palaceHighlight={highlight}
                           annualStars={annualStarsMap[chiIdx]}
@@ -1545,7 +1555,7 @@ export default function App() {
             {tab === 'ai' && (
               <InterpretTab
                 result={result} form={form}
-                daiHan={getDaiHan(result)} tieuHan={getTieuHan(result, form.year)}
+                daiHan={daiHanList} tieuHan={tieuHanList}
                 initialYear={analysisYear}
                 onYearChange={y => setAnalysisYear(y)}
               />
