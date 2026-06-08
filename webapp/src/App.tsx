@@ -1199,6 +1199,96 @@ function SkeletonGrid() {
   )
 }
 
+// ── Tam Phương Tứ Chính Panel ────────────────────────────────────────────────
+// Hiển thị 4 cung: cung đang chọn (Chính), Chiếu đối cung, 2 cung Tam Hợp
+function TamPhuongPanel({ data, onClose, onSelectCung }: {
+  data: { chinh: any; chieu: any; tamHop1: any; tamHop2: any }
+  onClose: () => void
+  onSelectCung: (cung: any) => void
+}) {
+  const slots = [
+    { label: 'Chính cung',  role: 'chinh',  cung: data.chinh,   color: 'var(--purple)' },
+    { label: 'Chiếu cung',  role: 'chieu',  cung: data.chieu,   color: '#dc2626' },
+    { label: 'Tam hợp 1',   role: 'tamhop', cung: data.tamHop1, color: '#d97706' },
+    { label: 'Tam hợp 2',   role: 'tamhop', cung: data.tamHop2, color: '#d97706' },
+  ]
+
+  function slotStars(cung: any) {
+    if (!cung) return []
+    return [
+      ...(cung.ChinhTinh ?? []).map((s: any) => ({ ...s, group: 'chinh' })),
+      ...(cung.Saotot    ?? []).map((s: any) => ({ ...s, group: 'tot' })),
+      ...(cung.Saoxau    ?? []).map((s: any) => ({ ...s, group: 'xau' })),
+    ]
+  }
+
+  function slotHoa(cung: any): string[] {
+    if (!cung) return []
+    return [
+      cung.LocNhap   && `Lộc←${cung.LocNhap}`,
+      cung.QuyenNhap && `Quyền←${cung.QuyenNhap}`,
+      cung.KhoaNhap  && `Khoa←${cung.KhoaNhap}`,
+      cung.KyNhap    && `Kỵ←${cung.KyNhap}`,
+    ].filter(Boolean) as string[]
+  }
+
+  const tuHoaOf = (c: any) => detectTuHoaForPalace(c ?? {})
+
+  return (
+    <div className="tp-panel">
+      <div className="tp-header">
+        <span className="tp-title">⊹ Tam phương tứ chính — <b>{data.chinh?.Name}</b> ({T_CAN[data.chinh?.CanCung] ?? ''} {data.chinh?.TieuHan})</span>
+        <button className="tp-close" onClick={onClose} aria-label="Đóng">✕</button>
+      </div>
+      <div className="tp-grid">
+        {slots.map(({ label, role, cung, color }) => (
+          <div key={label}
+            className={`tp-slot tp-${role}${cung ? ' tp-clickable' : ''}`}
+            style={{ '--tp-color': color } as React.CSSProperties}
+            onClick={() => cung && role !== 'chinh' && onSelectCung(cung)}
+          >
+            <div className="tp-slot-label">{label}</div>
+            {cung ? (
+              <>
+                <div className="tp-slot-name">{cung.Name}</div>
+                <div className="tp-slot-chi">{T_CAN[cung.CanCung] ?? ''} {cung.TieuHan}</div>
+                {cung.TrangSinh && <div className="tp-slot-ts">{cung.TrangSinh}</div>}
+                {slotHoa(cung).length > 0 && (
+                  <div className="tp-slot-hoa">
+                    {slotHoa(cung).map((h, i) => {
+                      const type = h.startsWith('Lộc') ? 'loc' : h.startsWith('Quyền') ? 'quyen' : h.startsWith('Khoa') ? 'khoa' : 'ky'
+                      return <span key={i} className={`hoa ${type}`}>{h}</span>
+                    })}
+                  </div>
+                )}
+                {tuHoaOf(cung).length > 0 && (
+                  <div className="tp-slot-hoa">
+                    {tuHoaOf(cung).map((t, i) => (
+                      <span key={i} className={`tuhoa ${t.type === 'Lộc' ? 'loc' : t.type === 'Quyền' ? 'quyen' : t.type === 'Khoa' ? 'khoa' : 'ky'}`}>↻{t.type}</span>
+                    ))}
+                  </div>
+                )}
+                <div className="tp-slot-stars">
+                  {slotStars(cung).map((s, i) => (
+                    <span key={i}
+                      className={`tp-star tp-star-${s.group}`}
+                      style={s.NguHanh ? { color: HANH[s.NguHanh]?.color } : undefined}
+                    >
+                      {s.Name}{s.Status && s.group === 'chinh' ? <sup>{s.Status}</sup> : ''}
+                    </span>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="tp-slot-empty">—</div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Main App ────────────────────────────────────────────────────────────────
 export default function App() {
   const [form, setForm] = useState<FormData>({
@@ -1254,7 +1344,7 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
-  // Compute palace highlights (tam hop / xung) based on selectedCung
+  // Compute palace highlights (tam phương tứ chính: chiếu + tam hợp) khi click cung
   const palaceRelations = useMemo<Record<string, 'tamhop' | 'xung'>>(() => {
     const rel: Record<string, 'tamhop' | 'xung'> = {}
     if (selectedCung && result) {
@@ -1266,6 +1356,22 @@ export default function App() {
       }
     }
     return rel
+  }, [selectedCung, result])
+
+  // Tứ chính cung (dùng cho panel Tam phương tứ chính)
+  const tamPhuongData = useMemo(() => {
+    if (!selectedCung || !result) return null
+    const selChiIdx = D_CHI.indexOf(selectedCung.TieuHan)
+    if (selChiIdx < 0) return null
+    const { tamHop, xung } = computeRelations(selChiIdx)
+    const allCungs = result.Cac_cung as any[]
+    const byChi = (idx: number) => allCungs.find((c: any) => c.TieuHan === D_CHI[idx]) ?? null
+    return {
+      chinh: selectedCung,
+      chieu: xung !== null ? byChi(xung) : null,
+      tamHop1: tamHop[0] !== undefined ? byChi(tamHop[0]) : null,
+      tamHop2: tamHop[1] !== undefined ? byChi(tamHop[1]) : null,
+    }
   }, [selectedCung, result])
 
   // Annual stars map
@@ -1613,6 +1719,14 @@ export default function App() {
                     })}
                   </div>
                 )}
+                {tamPhuongData && (
+                  <TamPhuongPanel
+                    data={tamPhuongData}
+                    onClose={() => setSelectedCung(null)}
+                    onSelectCung={handlePalaceClick}
+                  />
+                )}
+
                 <div className="legend">
                   <div className="lg-group">
                     <b>Ngũ hành:</b>
