@@ -145,7 +145,7 @@ async function runDeepSeek(apiKey: string, chartData: any, emit: (t: string) => 
 
 // ─── System instruction ───────────────────────────────────────────────────────
 
-const SYSTEM_INSTRUCTION = `Bạn là Tử Vi sư Việt Nam chuyên nghiệp. Nguyên tắc: (1) xét cung thủ + cung chiếu đối diện; (2) tam hợp/xung ảnh hưởng Mệnh; (3) Tứ Hóa tác động riêng từng cung; (4) tổ hợp sao tương tác nhau; (5) trạng thái Miếu/Vượng/Đắc > Bình > Hãm; (6) Tuần/Triệt làm yếu sao; (7) Đại Hạn kết hợp bản Mệnh. Nhận diện và gọi tên Cách Cục (Tử Phủ triều viên, Song Lộc, Không Kiếp giáp Mệnh, Nhật Nguyệt đồng chiếu, Mã Đầu Đới Tiễn...). Viết tiếng Việt sâu sắc, dẫn chứng tên sao + trạng thái cụ thể.`
+const SYSTEM_INSTRUCTION = `Bạn là Tử Vi sư Việt Nam chuyên nghiệp. Nguyên tắc: (1) xét cung thủ + cung chiếu đối diện; (2) tam hợp/xung ảnh hưởng Mệnh; (3) Tứ Hóa tác động riêng từng cung; (4) Tự Hóa (自化) — sao tự hóa theo Can chính cung: tự hóa Lộc/Quyền/Khoa dễ phát tán ra ngoài, tự hóa Kỵ hao tổn nội tại, cần luận kỹ; (5) tổ hợp sao tương tác nhau; (6) trạng thái Miếu/Vượng/Đắc > Bình > Hãm; (7) Tuần/Triệt làm yếu sao; (8) Đại Hạn kết hợp bản Mệnh. Nhận diện và gọi tên Cách Cục (Tử Phủ triều viên, Song Lộc, Không Kiếp giáp Mệnh, Nhật Nguyệt đồng chiếu, Mã Đầu Đới Tiễn...). Viết tiếng Việt sâu sắc, dẫn chứng tên sao + trạng thái cụ thể.`
 
 // ─── Full prompt (17 sections) ────────────────────────────────────────────────
 
@@ -156,7 +156,7 @@ function fmtTuHoa(th: any): string {
 
 function buildFullPrompt(d: any): string {
   const { form, info, danNap, palaces, daiHan, tieuHan, currentYear, currentDH, currentTH,
-          annualStars, menhRelations, tuHoaDH, tuHoaNam, cachCuc } = d
+          annualStars, menhRelations, tuHoaDH, tuHoaNam, cachCuc, tuHoaList } = d
   const age = currentYear - form.year
 
   // 12 cung — include annual stars per palace
@@ -172,7 +172,8 @@ function buildFullPrompt(d: any): string {
     ].filter(Boolean).join(', ')
     const flags = [p.isLife && 'MỆNH', p.isBody && 'THÂN', p.tuan && 'Tuần', p.triet && 'Triệt'].filter(Boolean).join('/')
     const annStar = p.annualStars?.length ? ` | lưuniên:${p.annualStars.join(',')}` : ''
-    return `▸ ${p.name}(${p.canCung})${flags ? ` [${flags}]` : ''}: ${chinh} | cát:${tot} | hung:${xau}${hoa ? ` | ${hoa}` : ''}${annStar} | ${p.trangSinh}`
+    const tuHoa = p.tuHoa?.length ? ` | TựHóa:${p.tuHoa.map((t: any) => `${t.type}(${t.star})`).join(',')}` : ''
+    return `▸ ${p.name}(${p.canCung})${flags ? ` [${flags}]` : ''}: ${chinh} | cát:${tot} | hung:${xau}${hoa ? ` | ${hoa}` : ''}${tuHoa}${annStar} | ${p.trangSinh}`
   }).join('\n')
 
   // Đại Hạn — include each hạn's own Tứ Hóa (from canCung)
@@ -203,6 +204,11 @@ function buildFullPrompt(d: any): string {
     ? cachCuc.join('\n')
     : 'Chưa phát hiện cách cục đặc biệt rõ ràng — AI tự nhận diện từ dữ liệu.'
 
+  // Tự Hóa (self-transformation)
+  const tuHoaLine = tuHoaList?.length
+    ? tuHoaList.join('\n')
+    : 'Không có cung nào tự hóa.'
+
   // Tam hợp / xung Mệnh
   const tamHopLine = menhRelations
     ? `Mệnh(${menhRelations.menhChi}) tam hợp: ${menhRelations.tamHop.map((r: any) => `${r.cungName}(${r.chi})`).join(', ')}` +
@@ -219,6 +225,9 @@ Chủ Mệnh ${info.chuMenh}, Chủ Thân ${info.chuThan}, ${info.thanCu}. Tuổ
 
 [CÁCH CỤC PHÁT HIỆN]
 ${cachCucLine}
+
+[TỰ HÓA — 自化] (sao trong cung tự hóa theo Can của chính cung; tự hóa Kỵ làm hao tổn nội tại, tự hóa Lộc dễ phát tán)
+${tuHoaLine}
 
 [TAM HỢP / XUNG CUNG MỆNH]
 ${tamHopLine}
@@ -241,7 +250,7 @@ ${dhLines}
 [TIỂU HẠN] (mỗi hạn có Tứ Hóa riêng theo Can chi năm)
 ${thLines}
 
-Viết bài phân tích hoàn chỉnh 17 mục — mỗi mục tối thiểu 6–8 câu, dẫn chứng tên sao + trạng thái + cung cụ thể. Dùng đầy đủ dữ liệu Cách Cục, Tam Hợp/Xung, Thái Tuế, Tứ Hóa Năm và Tứ Hóa Đại Hạn đã cung cấp:
+Viết bài phân tích hoàn chỉnh 17 mục — mỗi mục tối thiểu 6–8 câu, dẫn chứng tên sao + trạng thái + cung cụ thể. Dùng đầy đủ dữ liệu Cách Cục, Tự Hóa, Tam Hợp/Xung, Thái Tuế, Tứ Hóa Năm và Tứ Hóa Đại Hạn đã cung cấp:
 
 ## 🌟 TỔNG QUAN LÁ SỐ
 ## ⭐ CÁCH CỤC & HÌNH THÁI LÁ SỐ

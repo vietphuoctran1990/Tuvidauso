@@ -3,6 +3,7 @@ import { generateLaSo } from 'tuvi-neo'
 import type { LaSoResult } from 'tuvi-neo'
 import { STAR_INFO, PALACE_INFO, TRANG_SINH_INFO } from './starInfo'
 import { exportChartPDF, exportAnalysisPrint } from './pdfExport'
+import { VN_PROVINCES, trueSolarGioIndex } from './provinces'
 
 import './App.css'
 
@@ -109,6 +110,22 @@ type Tab = 'laso' | 'daihan' | 'tieuHan' | 'ai'
 interface FormData {
   name: string; gender: 'male'|'female'; isLunar: boolean
   year: number; month: number; day: number; gioIndex: number
+  // Giờ mặt trời thật (tùy chọn): tỉnh sinh + giờ:phút đồng hồ
+  province: string; clockTime: string
+}
+
+// Tính giờ hiệu chỉnh từ form. Nếu có đủ tỉnh + giờ:phút → dùng giờ mặt trời thật,
+// ngược lại dùng Giờ (Chi) người dùng tự chọn.
+function resolveGio(form: FormData): { gioIndex: number; corrected: boolean; correctionMin: number } {
+  const prov = VN_PROVINCES.find(p => p.key === form.province)
+  const m = form.clockTime.match(/^(\d{1,2}):(\d{2})$/)
+  if (prov && m) {
+    const hour = Math.min(23, Math.max(0, Number(m[1])))
+    const minute = Math.min(59, Math.max(0, Number(m[2])))
+    const { gioIndex, correctionMin } = trueSolarGioIndex(hour, minute, prov.lon, form.month, form.day)
+    return { gioIndex, corrected: true, correctionMin }
+  }
+  return { gioIndex: form.gioIndex, corrected: false, correctionMin: 0 }
 }
 
 interface SelectedStar { name: string; status?: string; hanh?: number }
@@ -211,6 +228,29 @@ function computeTuHoaForCan(canIdx: number, rawCungs: any[]) {
     khoa:  { star: th.khoa,  palace: findPalace(th.khoa)  },
     ky:    { star: th.ky,    palace: findPalace(th.ky)    },
   }
+}
+
+// Tự Hóa (自化): sao nằm trong cung tự hóa theo Can của chính cung đó.
+// Với mỗi cung, lấy Can cung → bộ Tứ Hóa của Can → nếu sao hóa nằm ngay trong
+// cung này thì cung "tự hóa" loại đó (Lộc/Quyền/Khoa/Kỵ).
+const TU_HOA_KEYS: [keyof typeof TU_HOA_BY_CAN[number], string][] = [
+  ['loc', 'Lộc'], ['quyen', 'Quyền'], ['khoa', 'Khoa'], ['ky', 'Kỵ'],
+]
+
+function detectTuHoaForPalace(rawCung: any): { type: string; star: string }[] {
+  const th = TU_HOA_BY_CAN[rawCung.CanCung]
+  if (!th) return []
+  const ownStars: string[] = [
+    ...(rawCung.ChinhTinh ?? []).map((s: any) => (s.Name as string).toLowerCase()),
+    ...(rawCung.Saotot   ?? []).map((s: any) => (s.Name as string).toLowerCase()),
+    ...(rawCung.Saoxau   ?? []).map((s: any) => (s.Name as string).toLowerCase()),
+  ]
+  const out: { type: string; star: string }[] = []
+  for (const [key, label] of TU_HOA_KEYS) {
+    const star = th[key]
+    if (ownStars.includes(star.toLowerCase())) out.push({ type: label, star })
+  }
+  return out
 }
 
 // Detect Cách Cục patterns from raw palace data
@@ -368,6 +408,13 @@ function buildChartData(result: LaSoResult, form: FormData, daiHan: any[], tieuH
   // Auto-detected Cách Cục
   const cachCuc = detectCachCuc(rawCungs)
 
+  // Tự Hóa per palace + tổng hợp danh sách
+  const tuHoaList: string[] = []
+  for (const c of rawCungs) {
+    const th = detectTuHoaForPalace(c)
+    for (const t of th) tuHoaList.push(`${c.Name} (Can ${T_CAN[c.CanCung] ?? '?'}): Tự Hóa ${t.type} — ${t.star}`)
+  }
+
   return {
     form: {
       name: form.name || 'Không tên',
@@ -389,6 +436,7 @@ function buildChartData(result: LaSoResult, form: FormData, daiHan: any[], tieuH
       trangSinh: c.TrangSinh, tuan: c.Tuan === 1, triet: c.Triet === 1,
       locNhap: c.LocNhap, quyenNhap: c.QuyenNhap, khoaNhap: c.KhoaNhap, kyNhap: c.KyNhap,
       annualStars: annualStars[c.Name] ?? [],
+      tuHoa: detectTuHoaForPalace(c),
       chinhTinh: (c.ChinhTinh ?? []).map((s: any) => ({ name: s.Name, status: s.Status })),
       saotot:    (c.Saotot   ?? []).map((s: any) => ({ name: s.Name, status: s.Status })),
       saoxau:    (c.Saoxau   ?? []).map((s: any) => ({ name: s.Name })),
@@ -427,6 +475,7 @@ function buildChartData(result: LaSoResult, form: FormData, daiHan: any[], tieuH
     tuHoaDH,
     tuHoaNam,
     cachCuc,
+    tuHoaList,
     currentDH: currentDH ? {
       startAge: currentDH.startAge, endAge: currentDH.endAge,
       cungName: currentDH.cung?.Name ?? '',
@@ -716,6 +765,7 @@ const PalaceCell = memo(function PalaceCell({ cung, isSelected, onClick, onStarC
   const isBody = cung.Than === 1
   const hoaStars = new Set<string>([cung.LocNhap, cung.QuyenNhap, cung.KhoaNhap, cung.KyNhap].filter(Boolean))
   const primaryElem = cung.ChinhTinh?.[0]?.NguHanh ?? 0
+  const tuHoa = detectTuHoaForPalace(cung)
 
   const starClick = (s: any) => (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -751,6 +801,17 @@ const PalaceCell = memo(function PalaceCell({ cung, isSelected, onClick, onStarC
           {cung.QuyenNhap && <span className="hoa quyen">Quyền·{cung.QuyenNhap}</span>}
           {cung.KhoaNhap && <span className="hoa khoa">Khoa·{cung.KhoaNhap}</span>}
           {cung.KyNhap && <span className="hoa ky">Kỵ·{cung.KyNhap}</span>}
+        </div>
+      )}
+
+      {tuHoa.length > 0 && (
+        <div className="pc-tuhoa">
+          {tuHoa.map((t, i) => (
+            <span key={i} className={`tuhoa ${t.type === 'Lộc' ? 'loc' : t.type === 'Quyền' ? 'quyen' : t.type === 'Khoa' ? 'khoa' : 'ky'}`}
+              title={`Tự Hóa ${t.type} — ${t.star} (theo Can ${canName})`}>
+              ↻{t.type}
+            </span>
+          ))}
         </div>
       )}
 
@@ -1143,7 +1204,10 @@ export default function App() {
   const [form, setForm] = useState<FormData>({
     name: '', gender: 'male', isLunar: false,
     year: 1990, month: 1, day: 1, gioIndex: 0,
+    province: '', clockTime: '',
   })
+  // Thông tin hiệu chỉnh giờ mặt trời thật (nếu có)
+  const [solarInfo, setSolarInfo] = useState<{ corrected: boolean; correctionMin: number; gioIndex: number } | null>(null)
   const [result, setResult] = useState<LaSoResult | null>(null)
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(true)
@@ -1236,10 +1300,12 @@ export default function App() {
     setIsCalculating(true)
     setTimeout(() => {
       try {
+        const gio = resolveGio(form)
         const laso = generateLaSo({
           name: form.name || 'Vô danh', gender: form.gender,
-          birth: { isLunar: form.isLunar, year: form.year, month: form.month, day: form.day, hour: form.gioIndex * 2 },
+          birth: { isLunar: form.isLunar, year: form.year, month: form.month, day: form.day, hour: gio.gioIndex * 2 },
         })
+        setSolarInfo({ corrected: gio.corrected, correctionMin: gio.correctionMin, gioIndex: gio.gioIndex })
         setResult(laso); setShowForm(false); setTab('laso')
         setSelectedCung(null); setSelectedStar(null)
         setIsCalculating(false)
@@ -1274,14 +1340,18 @@ export default function App() {
   }
 
   function handleLoadChart(saved: SavedChart) {
-    setForm(saved.form)
+    // Lá số cũ có thể thiếu trường mới → bổ sung mặc định
+    const loadedForm: FormData = { ...saved.form, province: saved.form.province ?? '', clockTime: saved.form.clockTime ?? '' }
+    setForm(loadedForm)
     setIsCalculating(true)
     setTimeout(() => {
       try {
+        const gio = resolveGio(loadedForm)
         const laso = generateLaSo({
-          name: saved.form.name || 'Vô danh', gender: saved.form.gender,
-          birth: { isLunar: saved.form.isLunar, year: saved.form.year, month: saved.form.month, day: saved.form.day, hour: saved.form.gioIndex * 2 },
+          name: loadedForm.name || 'Vô danh', gender: loadedForm.gender,
+          birth: { isLunar: loadedForm.isLunar, year: loadedForm.year, month: loadedForm.month, day: loadedForm.day, hour: gio.gioIndex * 2 },
         })
+        setSolarInfo({ corrected: gio.corrected, correctionMin: gio.correctionMin, gioIndex: gio.gioIndex })
         setResult(laso); setShowForm(false); setTab('laso')
         setSelectedCung(null); setSelectedStar(null)
         setShowSavedList(false)
@@ -1416,6 +1486,28 @@ export default function App() {
                   {GIO_CHI.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
                 </select>
               </div>
+
+              <details className="solar-time-box">
+                <summary>🌞 Giờ mặt trời thật (tùy chọn — chính xác hơn)</summary>
+                <p className="solar-hint">
+                  Nếu biết giờ:phút sinh và nơi sinh, hệ thống sẽ hiệu chỉnh theo kinh độ để xác định đúng canh giờ.
+                  Khi điền đủ, giá trị này sẽ thay cho "Giờ sinh" ở trên.
+                </p>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Tỉnh/Thành nơi sinh</label>
+                    <select name="province" value={form.province} onChange={handleChange}>
+                      <option value="">— Không rõ —</option>
+                      {VN_PROVINCES.map(p => <option key={p.key} value={p.key}>{p.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Giờ:phút sinh (đồng hồ)</label>
+                    <input name="clockTime" type="time" value={form.clockTime} onChange={handleChange} />
+                  </div>
+                </div>
+              </details>
+
               <button type="submit" className="submit-btn" onClick={e => { createRipple(e); burstParticles(e, 14) }}>✨ Xem lá số tử vi</button>
               {error && <div className="error-msg">{error}</div>}
             </form>
@@ -1431,6 +1523,13 @@ export default function App() {
                 <button key={t} className={`tab-btn ${tab === t ? 'tab-active' : ''} ${t === 'ai' ? 'tab-ai' : ''}`} onClick={e => { createRipple(e); setTab(t) }}>{l}</button>
               ))}
             </div>
+
+            {solarInfo?.corrected && (
+              <div className="solar-banner">
+                🌞 Đã hiệu chỉnh <b>giờ mặt trời thật</b>: lệch {solarInfo.correctionMin >= 0 ? '+' : ''}{Math.round(solarInfo.correctionMin)} phút →
+                an theo <b>Giờ {D_CHI[solarInfo.gioIndex]}</b>.
+              </div>
+            )}
 
             {tab === 'laso' && (
               <>
