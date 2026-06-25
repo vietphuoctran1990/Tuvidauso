@@ -1461,3 +1461,106 @@ body {
 .btn-list-toggle:hover { border-color: var(--purple); color: var(--purple); box-shadow: var(--glow-purple); }
 
 .export-row { text-align: center; margin-top: 14px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+/* ── Provider row (DeepSeek / GLM selector) ─────────────────── */
+.provider-row {
+  display: flex; gap: 8px; justify-content: center; margin-bottom: 18px; flex-wrap: wrap;
+}
+.provider-row .provider-btn {
+  flex: unset; padding: 8px 22px; font-size: 13px; font-weight: 600;
+  font-family: var(--font-title); border-radius: 24px;
+  border: 1px solid var(--border-mid); background: var(--surf-2);
+  color: var(--text-2); cursor: pointer; transition: all .2s;
+}
+.provider-row .provider-btn:hover { border-color: var(--purple); color: var(--purple); box-shadow: var(--glow-purple); transform: translateY(-1px); }
+.provider-row .provider-btn.provider-active {
+  border-color: var(--purple); background: rgba(124,58,237,.10); color: var(--purple);
+  box-shadow: var(--glow-purple);
+}
+[data-theme="dark"] .provider-row .provider-btn.provider-active {
+  background: rgba(167,139,250,.14); border-color: rgba(167,139,250,.6); color: #c4b5fd;
+}
+
+/* ── Tự Hóa badges on palace cells ─────────────────────────── */
+.pc-tuhoa { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 2px; }
+.tuhoa {
+  display: inline-block; padding: 1px 5px; border-radius: 6px;
+  font-size: 9px; font-weight: 700; letter-spacing: .3px; line-height: 1.6;
+}
+
+/* ── Solar time correction box (in form) ────────────────────── */
+.solar-time-box {
+  margin-top: 12px; padding: 12px 14px; border-radius: var(--radius-md);
+  background: var(--surf-2); border: 1px solid var(--border-dim);
+}
+.solar-time-box summary {
+  cursor: pointer; font-family: var(--font-title); font-size: 12px;
+  font-weight: 600; color: var(--text-2); letter-spacing: .5px; list-style: none;
+}
+.solar-time-box summary::-webkit-details-marker { display: none; }
+.solar-hint {
+  font-size: 11px; color: var(--text-3); margin: 6px 0 10px; line-height: 1.55;
+}
+[data-theme="dark"] .solar-time-box { background: rgba(139,92,246,.06); border-color: rgba(139,92,246,.18); }
+
+/* ── Solar banner (shown after form submission) ─────────────── */
+.solar-banner {
+  display: flex; align-items: center; gap: 8px; justify-content: center;
+  padding: 8px 18px; margin: 0 auto 14px; max-width: 440px;
+  background: rgba(8,145,178,.07); border: 1px solid rgba(8,145,178,.25);
+  border-radius: var(--radius-md); font-size: 12px; color: var(--cyan);
+  animation: resultReveal .4s cubic-bezier(.22,1,.36,1);
+}
+.solar-banner strong { font-weight: 700; }
+[data-theme="dark"] .solar-banner { background: rgba(6,182,212,.08); border-color: rgba(6,182,212,.22); }
+
+/* ── Tam phương tứ chính panel ──────────────────────────────── */
+.tp-panel {
+  background: var(--surf-1); border: 1px solid var(--border-mid);
+  border-radius: var(--radius-lg); padding: 16px 18px 18px;
+  margin-bottom: 18px; box-shadow: var(--glow-purple);
+  animation: resultReveal .35s cubic-bezier(.22,1,.36,1);
+}
+.tp-header {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;
+}
+.tp-title { font-family: var(--font-title); font-size: 12px; font-weight: 700; color: var(--purple); letter-spacing: .5px; }
+.tp-close {
+  background: none; border: 1px solid var(--border-dim); border-radius: 50%;
+  width: 22px; height: 22px; font-size: 11px; color: var(--text-3);
+  cursor: pointer; line-height: 1; display: flex; align-items: center; justify-content: center;
+  transition: all .18s;
+}
+.tp-close:hover { border-color: var(--red); color: var(--red); }
+.tp-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+}
+@media (min-width: 520px) { .tp-grid { grid-template-columns: repeat(4, 1fr); } }
+.tp-slot {
+  padding: 10px 10px 8px; border-radius: var(--radius-sm);
+  border: 1px solid var(--tp-color, var(--border-dim));
+  background: color-mix(in srgb, var(--tp-color, transparent) 6%, var(--surf-2));
+  min-height: 72px; position: relative; transition: all .18s;
+}
+.tp-clickable { cursor: pointer; }
+.tp-clickable:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,.10); }
+.tp-slot-label {
+  font-size: 9px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase;
+  color: var(--tp-color, var(--text-3)); margin-bottom: 5px; opacity: .85;
+}
+.tp-slot-name {
+  font-family: var(--font-title); font-size: 13px; font-weight: 700; color: var(--text-1);
+}
+.tp-slot-chi { font-size: 10px; color: var(--text-3); margin-bottom: 3px; }
+.tp-slot-ts { font-size: 9px; color: var(--amber); margin-bottom: 3px; }
+.tp-slot-hoa { display: flex; flex-wrap: wrap; gap: 2px; margin: 3px 0; }
+.tp-slot-stars {
+  display: flex; flex-wrap: wrap; gap: 2px 5px; margin-top: 5px;
+}
+.tp-star { font-size: 9.5px; color: var(--text-2); }
+.tp-star-chinh { font-weight: 700; color: var(--text-1); }
+.tp-star-tot { color: var(--green); }
+.tp-star-xau { color: var(--red); }
+.tp-slot-empty { font-size: 18px; color: var(--border-mid); text-align: center; padding: 16px 0; }
+[data-theme="dark"] .tp-panel { background: var(--surf-1); border-color: rgba(139,92,246,.25); }
+[data-theme="dark"] .tp-slot { background: color-mix(in srgb, var(--tp-color, transparent) 9%, var(--surf-3)); }

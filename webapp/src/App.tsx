@@ -1,8 +1,9 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo, memo } from 'react'
 import { generateLaSo } from 'tuvi-neo'
 import type { LaSoResult } from 'tuvi-neo'
 import { STAR_INFO, PALACE_INFO, TRANG_SINH_INFO } from './starInfo'
 import { exportChartPDF, exportAnalysisPrint } from './pdfExport'
+import { VN_PROVINCES, trueSolarGioIndex } from './provinces'
 
 import './App.css'
 
@@ -101,11 +102,26 @@ const ANNUAL_STARS: AnnualStarConfig[] = [
   { name: 'Điếu Khách',  icon: '♦', color: '#64748b', offset: 10 },
 ]
 
+const YEAR_OPTIONS: number[] = Array.from({ length: 131 }, (_, i) => 1950 + i)
+
 type Tab = 'laso' | 'daihan' | 'tieuHan' | 'ai'
 
 interface FormData {
   name: string; gender: 'male'|'female'; isLunar: boolean
   year: number; month: number; day: number; gioIndex: number
+  province: string; clockTime: string
+}
+
+function resolveGio(form: FormData): { gioIndex: number; corrected: boolean; correctionMin: number } {
+  const prov = VN_PROVINCES.find(p => p.key === form.province)
+  const m = form.clockTime.match(/^(\d{1,2}):(\d{2})$/)
+  if (prov && m) {
+    const hour = Math.min(23, Math.max(0, Number(m[1])))
+    const minute = Math.min(59, Math.max(0, Number(m[2])))
+    const { gioIndex, correctionMin } = trueSolarGioIndex(hour, minute, prov.lon, form.month, form.day)
+    return { gioIndex, corrected: true, correctionMin }
+  }
+  return { gioIndex: form.gioIndex, corrected: false, correctionMin: 0 }
 }
 
 interface SelectedStar { name: string; status?: string; hanh?: number }
@@ -205,12 +221,180 @@ function computeDhScore(dh: any): number {
   return Math.max(1, Math.min(10, Math.round(score)))
 }
 
-// ── Build chart data for AI ────────────────────────────────────────────────
+// Tứ Hóa table indexed by Thiên Can (0=Giáp … 9=Quý)
+const TU_HOA_BY_CAN = [
+  { loc: 'Liêm trinh',  quyen: 'Phá quân',    khoa: 'Vũ khúc',     ky: 'Thái dương'  },
+  { loc: 'Thiên cơ',    quyen: 'Thiên lương',  khoa: 'Tử vi',       ky: 'Thái âm'     },
+  { loc: 'Thiên đồng',  quyen: 'Thiên cơ',     khoa: 'Văn xương',   ky: 'Liêm trinh'  },
+  { loc: 'Thái âm',     quyen: 'Thiên đồng',   khoa: 'Thiên cơ',    ky: 'Cự môn'      },
+  { loc: 'Tham lang',   quyen: 'Thái âm',      khoa: 'Hữu bật',     ky: 'Thiên cơ'    },
+  { loc: 'Vũ khúc',     quyen: 'Tham lang',    khoa: 'Thiên lương', ky: 'Văn khúc'    },
+  { loc: 'Thái dương',  quyen: 'Vũ khúc',      khoa: 'Thái âm',     ky: 'Thiên đồng'  },
+  { loc: 'Cự môn',      quyen: 'Thái dương',   khoa: 'Văn khúc',    ky: 'Văn xương'   },
+  { loc: 'Thiên lương', quyen: 'Tử vi',        khoa: 'Tả phù',      ky: 'Vũ khúc'     },
+  { loc: 'Phá quân',    quyen: 'Cự môn',       khoa: 'Thái âm',     ky: 'Tham lang'   },
+]
+
+function computeTuHoaForCan(canIdx: number, rawCungs: any[]) {
+  const th = TU_HOA_BY_CAN[canIdx]
+  if (!th) return null
+  const findPalace = (starName: string): string => {
+    const low = starName.toLowerCase()
+    for (const c of rawCungs) {
+      const names: string[] = [
+        ...(c.ChinhTinh ?? []).map((s: any) => (s.Name as string).toLowerCase()),
+        ...(c.Saotot   ?? []).map((s: any) => (s.Name as string).toLowerCase()),
+        ...(c.Saoxau   ?? []).map((s: any) => (s.Name as string).toLowerCase()),
+      ]
+      if (names.includes(low)) return c.Name as string
+    }
+    return '—'
+  }
+  return {
+    can:   T_CAN[canIdx],
+    loc:   { star: th.loc,   palace: findPalace(th.loc)   },
+    quyen: { star: th.quyen, palace: findPalace(th.quyen) },
+    khoa:  { star: th.khoa,  palace: findPalace(th.khoa)  },
+    ky:    { star: th.ky,    palace: findPalace(th.ky)    },
+  }
+}
+
+const TU_HOA_KEYS: [keyof typeof TU_HOA_BY_CAN[number], string][] = [
+  ['loc', 'Lộc'], ['quyen', 'Quyền'], ['khoa', 'Khoa'], ['ky', 'Kỵ'],
+]
+
+function detectTuHoaForPalace(rawCung: any): { type: string; star: string }[] {
+  const th = TU_HOA_BY_CAN[rawCung.CanCung]
+  if (!th) return []
+  const ownStars: string[] = [
+    ...(rawCung.ChinhTinh ?? []).map((s: any) => (s.Name as string).toLowerCase()),
+    ...(rawCung.Saotot   ?? []).map((s: any) => (s.Name as string).toLowerCase()),
+    ...(rawCung.Saoxau   ?? []).map((s: any) => (s.Name as string).toLowerCase()),
+  ]
+  const out: { type: string; star: string }[] = []
+  for (const [key, label] of TU_HOA_KEYS) {
+    const star = th[key]
+    if (ownStars.includes(star.toLowerCase())) out.push({ type: label, star })
+  }
+  return out
+}
+
+function detectCachCuc(rawCungs: any[]): string[] {
+  const found: string[] = []
+  const menhC = rawCungs.find((c: any) => c.Name === 'Mệnh')
+  if (!menhC) return found
+
+  const getN = (c: any): string[] => [
+    ...(c.ChinhTinh ?? []).map((s: any) => (s.Name as string).toLowerCase()),
+    ...(c.Saotot   ?? []).map((s: any) => (s.Name as string).toLowerCase()),
+    ...(c.Saoxau   ?? []).map((s: any) => (s.Name as string).toLowerCase()),
+  ]
+  const mS  = getN(menhC)
+  const inM = (n: string) => mS.includes(n.toLowerCase())
+  const inC = (c: any, n: string) => getN(c).includes(n.toLowerCase())
+
+  const mIdx = D_CHI.indexOf(menhC.TieuHan)
+  const adjL = rawCungs.find((c: any) => c.TieuHan === D_CHI[(mIdx - 1 + 12) % 12])
+  const adjR = rawCungs.find((c: any) => c.TieuHan === D_CHI[(mIdx + 1) % 12])
+  const xungC = rawCungs.find((c: any) => c.TieuHan === D_CHI[(mIdx + 6) % 12])
+
+  if (inM('kình dương')) found.push('Kình Dương tọa Mệnh — cứng rắn quyết đoán, dễ gặp tai họa sát thương')
+  if (inM('đà la'))      found.push('Đà La tọa Mệnh — nhiều trắc trở, hay trì hoãn, chậm thành công')
+
+  const mK = inM('địa không'); const mKp = inM('địa kiếp')
+  if (mK && mKp)     found.push('Không Kiếp đồng cung Mệnh — đại hung, tán tài phá nghiệp')
+  else if (mK)       found.push('Địa Không tọa Mệnh — tổn tài, khó giữ của cải lâu dài')
+  else if (mKp)      found.push('Địa Kiếp tọa Mệnh — hao tài, tai họa bất ngờ')
+
+  if (!mK && !mKp && adjL && adjR) {
+    const lH = inC(adjL, 'địa không') || inC(adjL, 'địa kiếp')
+    const rH = inC(adjR, 'địa không') || inC(adjR, 'địa kiếp')
+    if (lH && rH) found.push('Không Kiếp giáp Mệnh — hai cung kề kẹp Mệnh, tiêu tán tài lộc')
+  }
+
+  const hoa = inM('hỏa tinh'); const linh = inM('linh tinh')
+  if (hoa && linh) found.push('Hỏa Linh đồng cung Mệnh — hung cách, nóng nảy, tai họa đột ngột')
+  else if (hoa)    found.push('Hỏa Tinh tọa Mệnh — tính nóng, dễ bị tổn thương đột ngột')
+  else if (linh)   found.push('Linh Tinh tọa Mệnh — hay gặp biến cố bất ngờ')
+
+  if (inM('thiên khốc') && inM('thiên hư')) found.push('Thiên Khốc Thiên Hư đồng cung Mệnh — hay lo âu, cô đơn nội tâm')
+  if (inM('cô thần') || inM('quả tú'))      found.push('Cô Thần/Quả Tú tọa Mệnh — cô đơn, hôn nhân dễ trắc trở')
+
+  for (const c of rawCungs) {
+    if (getN(c).includes('lộc tồn') && c.LocNhap)
+      found.push(`Song Lộc tại ${c.Name} — Lộc Tồn + Hóa Lộc đồng cung, đại phú`)
+  }
+  for (const c of rawCungs) {
+    const s = getN(c)
+    if (s.includes('lộc tồn') && s.includes('thiên mã'))
+      found.push(`Lộc Mã Giao Trì tại ${c.Name} — Lộc Tồn + Thiên Mã, phú quý phát xa`)
+  }
+
+  const vX = inM('văn xương'); const vK = inM('văn khúc')
+  if (vX && vK) found.push('Song Văn tọa Mệnh — Văn Xương + Văn Khúc, học rộng văn chương xuất sắc')
+  else if (vX)  found.push('Văn Xương tọa Mệnh — thông minh, học giỏi, văn chương')
+  else if (vK)  found.push('Văn Khúc tọa Mệnh — tài nghệ, nghệ thuật, khéo léo')
+
+  const kh = inM('thiên khôi'); const vi = inM('thiên việt')
+  if (kh && vi) found.push('Khôi Việt đồng cung Mệnh — quý nhân phù trợ mạnh, công danh hanh thông')
+  else if (kh)  found.push('Thiên Khôi tọa Mệnh — được quý nhân đỡ đầu, dễ thăng tiến')
+  else if (vi)  found.push('Thiên Việt tọa Mệnh — quý nhân hỗ trợ sự nghiệp')
+
+  const ta = inM('tả phù'); const hu = inM('hữu bật')
+  if (ta && hu) found.push('Tả Hữu đồng cung Mệnh — nhiều người giúp đỡ, lãnh đạo tốt')
+
+  if (xungC) {
+    const xS = getN(xungC)
+    const tdM = inM('thái dương'); const taX = xS.includes('thái âm')
+    const taM = inM('thái âm');   const tdX = xS.includes('thái dương')
+    if ((tdM && taX) || (taM && tdX)) found.push('Nhật Nguyệt chiếu Mệnh — Thái Dương & Thái Âm soi rọi, sáng láng minh tuệ')
+  }
+
+  const tuViS = menhC.ChinhTinh?.find((s: any) => (s.Name as string).toLowerCase() === 'tử vi')
+  if (tuViS && ['M','V'].includes(tuViS.Status)) found.push('Tử Vi Miếu/Vượng tọa Mệnh — đế tinh vượng địa, uy quyền lãnh đạo')
+
+  const phuS = menhC.ChinhTinh?.find((s: any) => (s.Name as string).toLowerCase() === 'thiên phủ')
+  if (phuS && ['M','V','Đ'].includes(phuS.Status)) found.push('Thiên Phủ Miếu/Vượng tọa Mệnh — phú tinh, giàu có, biết tích lũy')
+
+  return found
+}
+
 function buildChartData(result: LaSoResult, form: FormData, daiHan: any[], tieuHan: any[], targetYear?: number) {
   const currentYear = targetYear ?? new Date().getFullYear()
   const age = currentYear - form.year
   const currentDH = daiHan.find(dh => age >= dh.startAge && age <= dh.endAge)
   const currentTH = tieuHan.find(th => th.years.includes(currentYear))
+  const rawCungs = result.Cac_cung as any[]
+
+  const annualByPos = getAnnualStarsForYear(currentYear)
+  const annualStars: Record<string, string[]> = {}
+  for (const c of rawCungs) {
+    const chiIdx = D_CHI.indexOf(c.TieuHan)
+    const stars = annualByPos[chiIdx]
+    if (stars?.length) annualStars[c.Name] = stars.map(s => s.name)
+  }
+
+  const menhRaw = rawCungs.find((c: any) => c.Name === 'Mệnh')
+  const mIdx = menhRaw ? D_CHI.indexOf(menhRaw.TieuHan) : -1
+  const mRels = mIdx >= 0 ? computeRelations(mIdx) : null
+  const menhRelations = mRels ? {
+    menhChi: D_CHI[mIdx],
+    tamHop: mRels.tamHop.map(i => ({ chi: D_CHI[i], cungName: rawCungs.find((c: any) => c.TieuHan === D_CHI[i])?.Name ?? '' })),
+    xung: mRels.xung !== null ? { chi: D_CHI[mRels.xung], cungName: rawCungs.find((c: any) => c.TieuHan === D_CHI[mRels.xung!])?.Name ?? '' } : null,
+  } : null
+
+  const tuHoaDH = currentDH?.cung?.CanCung !== undefined
+    ? computeTuHoaForCan(currentDH.cung.CanCung, rawCungs) : null
+  const yearCanIdx = ((currentYear - 4) % 10 + 10) % 10
+  const tuHoaNam = computeTuHoaForCan(yearCanIdx, rawCungs)
+  const cachCuc = detectCachCuc(rawCungs)
+
+  const tuHoaList: string[] = []
+  for (const c of rawCungs) {
+    const th = detectTuHoaForPalace(c)
+    for (const t of th) tuHoaList.push(`${c.Name} (Can ${T_CAN[c.CanCung] ?? '?'}): Tự Hóa ${t.type} — ${t.star}`)
+  }
+
   return {
     form: {
       name: form.name || 'Không tên',
@@ -225,39 +409,52 @@ function buildChartData(result: LaSoResult, form: FormData, daiHan: any[], tieuH
       thanCu: result.Info.ThanCu,
     },
     danNap: getDanNap(result),
-    palaces: result.Cac_cung.map((c: any) => ({
+    palaces: rawCungs.map((c: any) => ({
       name: c.Name, tieuHan: c.TieuHan,
       canCung: T_CAN[c.CanCung] ?? '',
       isLife: c.Name === 'Mệnh', isBody: c.Than === 1,
       trangSinh: c.TrangSinh, tuan: c.Tuan === 1, triet: c.Triet === 1,
       locNhap: c.LocNhap, quyenNhap: c.QuyenNhap, khoaNhap: c.KhoaNhap, kyNhap: c.KyNhap,
+      annualStars: annualStars[c.Name] ?? [],
+      tuHoa: detectTuHoaForPalace(c),
       chinhTinh: (c.ChinhTinh ?? []).map((s: any) => ({ name: s.Name, status: s.Status })),
       saotot:    (c.Saotot   ?? []).map((s: any) => ({ name: s.Name, status: s.Status })),
       saoxau:    (c.Saoxau   ?? []).map((s: any) => ({ name: s.Name })),
     })),
-    daiHan: daiHan.map(dh => ({
-      startAge: dh.startAge, endAge: dh.endAge,
-      cungName: dh.cung?.Name ?? '', chiName: dh.chiName,
-      trangSinh: dh.cung?.TrangSinh ?? '',
-      locNhap: dh.cung?.LocNhap, quyenNhap: dh.cung?.QuyenNhap,
-      khoaNhap: dh.cung?.KhoaNhap, kyNhap: dh.cung?.KyNhap,
-      chinhTinh: (dh.cung?.ChinhTinh ?? []).map((s: any) => s.Name),
-      saotot:    (dh.cung?.Saotot   ?? []).slice(0, 8).map((s: any) => s.Name),
-      saoxau:    (dh.cung?.Saoxau   ?? []).slice(0, 5).map((s: any) => s.Name),
-    })),
-    tieuHan: tieuHan.map(th => ({
-      yearChi: th.yearChi, chiName: th.chiName,
-      cungName: th.cung?.Name ?? '', years: th.years,
-      locNhap: th.cung?.LocNhap, quyenNhap: th.cung?.QuyenNhap,
-      khoaNhap: th.cung?.KhoaNhap, kyNhap: th.cung?.KyNhap,
-      chinhTinh: (th.cung?.ChinhTinh ?? []).map((s: any) => s.Name),
-      saotot: (th.cung?.Saotot ?? []).slice(0, 6).map((s: any) => s.Name),
-      saoxau: (th.cung?.Saoxau ?? []).slice(0, 4).map((s: any) => s.Name),
-    })),
-    currentYear,
+    daiHan: daiHan.map(dh => {
+      const canIdx = dh.cung?.CanCung ?? -1
+      return {
+        startAge: dh.startAge, endAge: dh.endAge,
+        cungName: dh.cung?.Name ?? '', chiName: dh.chiName,
+        canCung: T_CAN[canIdx] ?? '',
+        trangSinh: dh.cung?.TrangSinh ?? '',
+        locNhap: dh.cung?.LocNhap, quyenNhap: dh.cung?.QuyenNhap,
+        khoaNhap: dh.cung?.KhoaNhap, kyNhap: dh.cung?.KyNhap,
+        dhTuHoa: canIdx >= 0 ? computeTuHoaForCan(canIdx, rawCungs) : null,
+        chinhTinh: (dh.cung?.ChinhTinh ?? []).map((s: any) => s.Name),
+        saotot:    (dh.cung?.Saotot   ?? []).slice(0, 8).map((s: any) => s.Name),
+        saoxau:    (dh.cung?.Saoxau   ?? []).slice(0, 5).map((s: any) => s.Name),
+      }
+    }),
+    tieuHan: tieuHan.map(th => {
+      const thCanIdx = ((th.years[0] + (th.age ?? 0) - 4) % 10 + 10) % 10
+      return {
+        yearChi: th.yearChi, chiName: th.chiName,
+        cungName: th.cung?.Name ?? '', years: th.years,
+        locNhap: th.cung?.LocNhap, quyenNhap: th.cung?.QuyenNhap,
+        khoaNhap: th.cung?.KhoaNhap, kyNhap: th.cung?.KyNhap,
+        thTuHoa: computeTuHoaForCan(thCanIdx, rawCungs),
+        chinhTinh: (th.cung?.ChinhTinh ?? []).map((s: any) => s.Name),
+        saotot: (th.cung?.Saotot ?? []).slice(0, 6).map((s: any) => s.Name),
+        saoxau: (th.cung?.Saoxau ?? []).slice(0, 4).map((s: any) => s.Name),
+      }
+    }),
+    currentYear, annualStars, menhRelations,
+    tuHoaDH, tuHoaNam, cachCuc, tuHoaList,
     currentDH: currentDH ? {
       startAge: currentDH.startAge, endAge: currentDH.endAge,
       cungName: currentDH.cung?.Name ?? '',
+      canCung: T_CAN[currentDH.cung?.CanCung ?? -1] ?? '',
       startYear: form.year + currentDH.startAge - 1,
       endYear:   form.year + currentDH.startAge + 8,
     } : null,
@@ -349,7 +546,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
   const [done, setDone] = useState(false)
   const [toast, setToast] = useState('')
   const [targetYear, setTargetYear] = useState<number>(initialYear ?? new Date().getFullYear())
-  const [provider, setProvider] = useState<'gemini' | 'groq'>('gemini')
+  const [provider, setProvider] = useState<'deepseek' | 'glm'>('deepseek')
   const [cooldown, setCooldown] = useState(0)
   useEffect(() => {
     if (initialYear !== undefined) setTargetYear(initialYear)
@@ -390,12 +587,14 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
 
   async function startAiAnalysis() {
     setLoading(true); setDone(false); setText(''); setError('')
-    const chartData = buildChartData(result, form, daiHan, tieuHan, targetYear)
     try {
       const res = await fetch('/api/interpret', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chartData, provider }),
+        body: JSON.stringify({
+          chartData: buildChartData(result, form, daiHan, tieuHan, targetYear),
+          provider,
+        }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }))
@@ -411,7 +610,6 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
         setText(prev => prev + decoder.decode(value))
       }
       setDone(true)
-      if (provider === 'groq') setCooldown(60)
     } catch (e: any) {
       setError(e.message || 'Lỗi không xác định.')
     } finally {
@@ -424,9 +622,6 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
     startAiAnalysis()
   }
 
-  const yearOptions: number[] = []
-  for (let y = 1950; y <= 2080; y++) yearOptions.push(y)
-
   return (
     <div className="interpret-tab">
       {!text && !loading && !error && (
@@ -435,23 +630,15 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
           <h2>Phân Tích Lá Số</h2>
           <p>Luận giải lá số của <strong>{form.name || 'bạn'}</strong> — tính cách, sự nghiệp, tài chính, tình duyên, sức khỏe, đại hạn và tiểu hạn.</p>
 
-          <div className="provider-selector">
+          <div className="provider-row">
             <button
-              className={`provider-btn${provider === 'gemini' ? ' provider-active provider-gemini-active' : ''}`}
-              onClick={() => { setProvider('gemini'); setCooldown(0) }}
-            >
-              <span className="provider-icon gemini-icon">✦</span>
-              <span className="provider-label">Gemini AI</span>
-              <span className="provider-desc">Chuyên sâu · 17 mục · ~20–30s</span>
-            </button>
+              className={`provider-btn${provider === 'deepseek' ? ' provider-active' : ''}`}
+              onClick={() => setProvider('deepseek')}
+            >🧠 DeepSeek</button>
             <button
-              className={`provider-btn${provider === 'groq' ? ' provider-active provider-groq-active' : ''}`}
-              onClick={() => setProvider('groq')}
-            >
-              <span className="provider-icon">⚡</span>
-              <span className="provider-label">Groq AI</span>
-              <span className="provider-desc">Nhanh · Tiết kiệm quota · ~30–40s</span>
-            </button>
+              className={`provider-btn${provider === 'glm' ? ' provider-active' : ''}`}
+              onClick={() => setProvider('glm')}
+            >✦ GLM (Zhipu)</button>
           </div>
 
           <div className="year-picker-row">
@@ -465,20 +652,18 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
                 onYearChange?.(y)
               }}
             >
-              {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+              {YEAR_OPTIONS.map(y => <option key={y} value={y}>{y}</option>)}
             </select>
           </div>
 
           <button
-            className={`btn-analyze${provider === 'groq' ? ' btn-analyze-groq' : ''}`}
+            className="btn-analyze"
             onClick={e => { createRipple(e); burstParticles(e, 16); handleAnalyze() }}
           >
-            {provider === 'groq' ? '⚡ Phân tích nhanh' : '✦ Phân tích chuyên sâu'}
+            ✦ Phân tích chuyên sâu
           </button>
           <p className="is-note">
-            {provider === 'groq'
-              ? `Năm ${targetYear} · Groq Llama 3.3 · Tiết kiệm quota Gemini`
-              : `Năm ${targetYear} · Gemini 2.0 Flash · Phân tích chi tiết đầy đủ`}
+            Năm {targetYear} · {provider === 'deepseek' ? 'DeepSeek' : 'GLM (Zhipu)'} · Phân tích chi tiết đầy đủ
           </p>
         </div>
       )}
@@ -487,7 +672,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
         <div className="interpret-loading">
           <div className="spin-container"><span className="spin-sym">☯</span></div>
           <p>Đang phân tích lá số tử vi...</p>
-          <p className="load-sub">{provider === 'groq' ? 'Groq đang xử lý (2 lượt: bản mệnh → vận hạn)' : 'Gemini đang đọc các sao và tổng hợp kết quả'}</p>
+          <p className="load-sub">{provider === 'deepseek' ? 'DeepSeek đang đọc các sao và tổng hợp kết quả' : 'GLM đang đọc các sao và tổng hợp kết quả'}</p>
         </div>
       )}
 
@@ -499,8 +684,8 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
 
       {text && (
         <div className="interpret-result">
-          <div className={`interpret-year-badge${provider === 'groq' ? ' badge-groq' : ''}`}>
-            {provider === 'groq' ? '⚡ Groq AI' : '✦ Gemini AI'} · Năm {targetYear}
+          <div className="interpret-year-badge">
+            {provider === 'deepseek' ? '🧠 DeepSeek' : '✦ GLM (Zhipu)'} · Năm {targetYear}
           </div>
           <MdText text={text} />
           {loading && <span className="cursor-blink">▌</span>}
@@ -510,8 +695,8 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
       {error && (
         <div className="interpret-error">
           <strong>Lỗi:</strong> {error}<br />
-          {error.includes('GROQ_API_KEY') && (
-            <span>Vui lòng thêm <code>GROQ_API_KEY</code> vào Environment Variables trên Netlify.</span>
+          {error.includes('API_KEY') && (
+            <span>Vui lòng kiểm tra API key trong Environment Variables.</span>
           )}
         </div>
       )}
@@ -521,16 +706,15 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
           <button
             className="btn-reanalyze"
             disabled={cooldown > 0 || loading}
-            title={cooldown > 0 ? 'Chờ giới hạn Groq TPM reset' : ''}
             onClick={e => { createRipple(e); handleAnalyze() }}
           >
             {cooldown > 0 ? `🔄 Phân tích lại (${cooldown}s)` : '🔄 Phân tích lại'}
           </button>
           <button
-            className={`btn-switch-provider${provider === 'groq' ? ' btn-switch-to-gemini' : ' btn-switch-to-groq'}`}
-            onClick={e => { createRipple(e); setProvider(p => p === 'gemini' ? 'groq' : 'gemini'); setCooldown(0); setText(''); setDone(false); setError('') }}
+            className="btn-switch-provider"
+            onClick={e => { createRipple(e); setProvider(p => p === 'deepseek' ? 'glm' : 'deepseek'); setCooldown(0); setText(''); setDone(false); setError('') }}
           >
-            {provider === 'groq' ? '✦ Dùng Gemini' : '⚡ Dùng Groq'}
+            {provider === 'deepseek' ? '✦ Dùng GLM' : '🧠 Dùng DeepSeek'}
           </button>
           {done && error === '' && (
             <>
@@ -547,7 +731,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
 }
 
 // ── StarBadge ───────────────────────────────────────────────────────────────
-function StarBadge({ name, status, hanh, isHoa, onClick }: {
+const StarBadge = memo(function StarBadge({ name, status, hanh, isHoa, onClick }: {
   name: string; status?: string; hanh?: number; isHoa?: boolean
   onClick: (e: React.MouseEvent) => void
 }) {
@@ -564,7 +748,7 @@ function StarBadge({ name, status, hanh, isHoa, onClick }: {
       {s && <sup className="star-status" style={{ color: s.color }}>{s.label}</sup>}
     </span>
   )
-}
+})
 
 // ── Palace Cell ─────────────────────────────────────────────────────────────
 function PalaceCell({ cung, isSelected, onClick, onStarClick, palaceHighlight, annualStars, showAnnualStars }: {
@@ -581,6 +765,7 @@ function PalaceCell({ cung, isSelected, onClick, onStarClick, palaceHighlight, a
   const isBody = cung.Than === 1
   const hoaStars = new Set<string>([cung.LocNhap, cung.QuyenNhap, cung.KhoaNhap, cung.KyNhap].filter(Boolean))
   const primaryElem = cung.ChinhTinh?.[0]?.NguHanh ?? 0
+  const tuHoa = detectTuHoaForPalace(cung)
 
   const starClick = (s: any) => (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -616,6 +801,16 @@ function PalaceCell({ cung, isSelected, onClick, onStarClick, palaceHighlight, a
           {cung.QuyenNhap && <span className="hoa quyen">Quyền·{cung.QuyenNhap}</span>}
           {cung.KhoaNhap && <span className="hoa khoa">Khoa·{cung.KhoaNhap}</span>}
           {cung.KyNhap && <span className="hoa ky">Kỵ·{cung.KyNhap}</span>}
+        </div>
+      )}
+      {tuHoa.length > 0 && (
+        <div className="pc-tuhoa">
+          {tuHoa.map((t, i) => (
+            <span key={i} className={`tuhoa ${t.type === 'Lộc' ? 'loc' : t.type === 'Quyền' ? 'quyen' : t.type === 'Khoa' ? 'khoa' : 'ky'}`}
+              title={`Tự Hóa ${t.type} — ${t.star} (theo Can ${canName})`}>
+              ↻{t.type}
+            </span>
+          ))}
         </div>
       )}
 
@@ -1003,11 +1198,84 @@ function SkeletonGrid() {
   )
 }
 
+// ── Tam Phương Panel ─────────────────────────────────────────────────────────
+function TamPhuongPanel({ data, onClose, onSelectCung }: {
+  data: { chinh: any; chieu: any; tamHop1: any; tamHop2: any }
+  onClose: () => void
+  onSelectCung: (cung: any) => void
+}) {
+  const slots = [
+    { label: 'Chính cung',  role: 'chinh',  cung: data.chinh,   color: 'var(--purple)' },
+    { label: 'Chiếu cung',  role: 'chieu',  cung: data.chieu,   color: '#dc2626' },
+    { label: 'Tam hợp 1',   role: 'tamhop', cung: data.tamHop1, color: '#d97706' },
+    { label: 'Tam hợp 2',   role: 'tamhop', cung: data.tamHop2, color: '#d97706' },
+  ]
+  const slotStars = (cung: any) => cung ? [
+    ...(cung.ChinhTinh ?? []).map((s: any) => ({ ...s, group: 'chinh' })),
+    ...(cung.Saotot ?? []).map((s: any) => ({ ...s, group: 'tot' })),
+    ...(cung.Saoxau ?? []).map((s: any) => ({ ...s, group: 'xau' })),
+  ] : []
+  const slotHoa = (cung: any): string[] => cung ? [
+    cung.LocNhap && `Lộc←${cung.LocNhap}`, cung.QuyenNhap && `Quyền←${cung.QuyenNhap}`,
+    cung.KhoaNhap && `Khoa←${cung.KhoaNhap}`, cung.KyNhap && `Kỵ←${cung.KyNhap}`,
+  ].filter(Boolean) as string[] : []
+
+  return (
+    <div className="tp-panel">
+      <div className="tp-header">
+        <span className="tp-title">⊹ Tam phương tứ chính — <b>{data.chinh?.Name}</b> ({T_CAN[data.chinh?.CanCung] ?? ''} {data.chinh?.TieuHan})</span>
+        <button className="tp-close" onClick={onClose} aria-label="Đóng">✕</button>
+      </div>
+      <div className="tp-grid">
+        {slots.map(({ label, role, cung, color }) => (
+          <div key={label}
+            className={`tp-slot tp-${role}${cung && role !== 'chinh' ? ' tp-clickable' : ''}`}
+            style={{ '--tp-color': color } as React.CSSProperties}
+            onClick={() => cung && role !== 'chinh' && onSelectCung(cung)}
+          >
+            <div className="tp-slot-label">{label}</div>
+            {cung ? (
+              <>
+                <div className="tp-slot-name">{cung.Name}</div>
+                <div className="tp-slot-chi">{T_CAN[cung.CanCung] ?? ''} {cung.TieuHan}</div>
+                {cung.TrangSinh && <div className="tp-slot-ts">{cung.TrangSinh}</div>}
+                {slotHoa(cung).length > 0 && (
+                  <div className="tp-slot-hoa">
+                    {slotHoa(cung).map((h, i) => {
+                      const type = h.startsWith('Lộc') ? 'loc' : h.startsWith('Quyền') ? 'quyen' : h.startsWith('Khoa') ? 'khoa' : 'ky'
+                      return <span key={i} className={`hoa ${type}`}>{h}</span>
+                    })}
+                  </div>
+                )}
+                {detectTuHoaForPalace(cung).length > 0 && (
+                  <div className="tp-slot-hoa">
+                    {detectTuHoaForPalace(cung).map((t, i) => (
+                      <span key={i} className={`tuhoa ${t.type === 'Lộc' ? 'loc' : t.type === 'Quyền' ? 'quyen' : t.type === 'Khoa' ? 'khoa' : 'ky'}`}>↻{t.type}</span>
+                    ))}
+                  </div>
+                )}
+                <div className="tp-slot-stars">
+                  {slotStars(cung).map((s, i) => (
+                    <span key={i} className={`tp-star tp-star-${s.group}`} style={s.NguHanh ? { color: HANH[s.NguHanh]?.color } : undefined}>
+                      {s.Name}{s.Status && s.group === 'chinh' ? <sup>{s.Status}</sup> : ''}
+                    </span>
+                  ))}
+                </div>
+              </>
+            ) : <div className="tp-slot-empty">—</div>}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Main App ────────────────────────────────────────────────────────────────
 export default function App() {
   const [form, setForm] = useState<FormData>({
     name: '', gender: 'male', isLunar: false,
     year: 1990, month: 1, day: 1, gioIndex: 0,
+    province: '', clockTime: '',
   })
   const [result, setResult] = useState<LaSoResult | null>(null)
   const [error, setError] = useState('')
@@ -1032,6 +1300,7 @@ export default function App() {
   const [showAnnualStars, setShowAnnualStars] = useState(false)
   // Feature: analysis year lifted to App level
   const [analysisYear, setAnalysisYear] = useState<number>(new Date().getFullYear())
+  const [solarInfo, setSolarInfo] = useState<{ corrected: boolean; correctionMin: number; gioIndex: number } | null>(null)
   // Feature: onboarding tooltip
   const [showOnboarding, setShowOnboarding] = useState(false)
   const onboardingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1071,8 +1340,24 @@ export default function App() {
     }
   }
 
+  // Tam phương data
+  const tamPhuongData = useMemo(() => {
+    if (!selectedCung || !result) return null
+    const selChiIdx = D_CHI.indexOf(selectedCung.TieuHan)
+    if (selChiIdx < 0) return null
+    const { tamHop, xung } = computeRelations(selChiIdx)
+    const allCungs = result.Cac_cung as any[]
+    const byChi = (idx: number) => allCungs.find((c: any) => c.TieuHan === D_CHI[idx]) ?? null
+    return {
+      chinh: selectedCung,
+      chieu: xung !== null ? byChi(xung) : null,
+      tamHop1: tamHop[0] !== undefined ? byChi(tamHop[0]) : null,
+      tamHop2: tamHop[1] !== undefined ? byChi(tamHop[1]) : null,
+    }
+  }, [selectedCung, result])
+
   // Annual stars map
-  const annualStarsMap = result ? getAnnualStarsForYear(analysisYear) : {}
+  const annualStarsMap = useMemo(() => result ? getAnnualStarsForYear(analysisYear) : {}, [result, analysisYear])
 
   async function handleDownloadChart() {
     const el = document.querySelector('.chart-grid') as HTMLElement
@@ -1096,10 +1381,12 @@ export default function App() {
     setIsCalculating(true)
     setTimeout(() => {
       try {
+        const gio = resolveGio(form)
         const laso = generateLaSo({
           name: form.name || 'Vô danh', gender: form.gender,
-          birth: { isLunar: form.isLunar, year: form.year, month: form.month, day: form.day, hour: form.gioIndex * 2 },
+          birth: { isLunar: form.isLunar, year: form.year, month: form.month, day: form.day, hour: gio.gioIndex * 2 },
         })
+        setSolarInfo({ corrected: gio.corrected, correctionMin: gio.correctionMin, gioIndex: gio.gioIndex })
         setResult(laso); setShowForm(false); setTab('laso')
         setSelectedCung(null); setSelectedStar(null)
         setIsCalculating(false)
@@ -1276,6 +1563,23 @@ export default function App() {
                   {GIO_CHI.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
                 </select>
               </div>
+              <details className="solar-time-box">
+                <summary>🌞 Giờ mặt trời thật (tùy chọn — chính xác hơn)</summary>
+                <p className="solar-hint">Nếu biết giờ:phút sinh và nơi sinh, hệ thống sẽ hiệu chỉnh theo kinh độ. Khi điền đủ, giá trị này thay cho "Giờ sinh" ở trên.</p>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Tỉnh/Thành nơi sinh</label>
+                    <select name="province" value={form.province} onChange={handleChange}>
+                      <option value="">— Không rõ —</option>
+                      {VN_PROVINCES.map(p => <option key={p.key} value={p.key}>{p.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Giờ:phút sinh (đồng hồ)</label>
+                    <input name="clockTime" type="time" value={form.clockTime} onChange={handleChange} />
+                  </div>
+                </div>
+              </details>
               <button type="submit" className="submit-btn" onClick={e => { createRipple(e); burstParticles(e, 14) }}>✨ Xem lá số tử vi</button>
               {error && <div className="error-msg">{error}</div>}
             </form>
@@ -1291,6 +1595,11 @@ export default function App() {
                 <button key={t} className={`tab-btn ${tab === t ? 'tab-active' : ''} ${t === 'ai' ? 'tab-ai' : ''}`} onClick={e => { createRipple(e); setTab(t) }}>{l}</button>
               ))}
             </div>
+            {solarInfo?.corrected && (
+              <div className="solar-banner">
+                🌞 Đã hiệu chỉnh <b>giờ mặt trời thật</b>: lệch {solarInfo.correctionMin >= 0 ? '+' : ''}{Math.round(solarInfo.correctionMin)} phút → an theo <b>Giờ {D_CHI[solarInfo.gioIndex]}</b>.
+              </div>
+            )}
 
             {tab === 'laso' && (
               <>
@@ -1307,7 +1616,7 @@ export default function App() {
                       value={analysisYear}
                       onChange={e => setAnalysisYear(Number(e.target.value))}
                     >
-                      {Array.from({ length: 131 }, (_, i) => 1950 + i).map(y => (
+                      {YEAR_OPTIONS.map(y => (
                         <option key={y} value={y}>{y}</option>
                       ))}
                     </select>
@@ -1373,6 +1682,13 @@ export default function App() {
                       )
                     })}
                   </div>
+                )}
+                {tamPhuongData && (
+                  <TamPhuongPanel
+                    data={tamPhuongData}
+                    onClose={() => setSelectedCung(null)}
+                    onSelectCung={handlePalaceClick}
+                  />
                 )}
                 <div className="legend">
                   <div className="lg-group">
