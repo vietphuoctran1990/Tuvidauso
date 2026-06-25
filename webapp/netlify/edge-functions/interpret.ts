@@ -1,9 +1,27 @@
-// Netlify Edge Function – DeepSeek V3 AI analysis
-//
-// API key priority: request body `deepseekKey` (user-entered in app) → DEEPSEEK_API_KEY env var
+// Netlify Edge Function — Tử Vi AI analysis
+// Supports two providers selectable per request:
+//   • "deepseek"  → DeepSeek API  (DEEPSEEK_API_KEY env var)
+//   • "glm"       → Zhipu AI GLM  (GLM_API_KEY env var)
+// Both use OpenAI-compatible streaming with multi-turn continuation.
 
-const DEEPSEEK_MODEL = 'deepseek-v4-flash'
-const DEEPSEEK_MAX_TOKENS = 8000
+const PROVIDERS = {
+  deepseek: {
+    url:      'https://api.deepseek.com/v1/chat/completions',
+    model:    'deepseek-chat',
+    maxTok:   8000,
+    envKey:   'DEEPSEEK_API_KEY',
+    label:    'DeepSeek',
+  },
+  glm: {
+    url:      'https://open.bigmodel.cn/api/paas/v4/chat/completions',
+    model:    'glm-4-flash',
+    maxTok:   8000,
+    envKey:   'GLM_API_KEY',
+    label:    'GLM',
+  },
+} as const
+
+type ProviderKey = keyof typeof PROVIDERS
 
 export default async function handler(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') {
@@ -18,22 +36,22 @@ export default async function handler(request: Request): Promise<Response> {
   if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 })
 
   let chartData: any
-  let bodyKey: string | undefined
+  let providerKey: ProviderKey = 'deepseek'
   try {
     const body = await request.json()
     chartData = body.chartData
-    bodyKey = body.deepseekKey
+    if (body.provider === 'glm') providerKey = 'glm'
   } catch {
     return new Response('Invalid JSON', { status: 400 })
   }
 
+  const cfg = PROVIDERS[providerKey]
   // @ts-ignore – Deno global
-  const envKey: string | undefined = Deno.env.get('DEEPSEEK_API_KEY')
-  const apiKey = bodyKey?.trim() || envKey?.trim()
+  const apiKey: string | undefined = Deno.env.get(cfg.envKey)?.trim()
 
   if (!apiKey) {
     return new Response(
-      JSON.stringify({ error: 'Chưa có DeepSeek API key. Vui lòng nhập key trong ứng dụng.' }),
+      JSON.stringify({ error: `Chưa có API key cho ${cfg.label}. Vui lòng thêm ${cfg.envKey} vào Netlify Environment Variables.` }),
       { status: 500, headers: { 'Content-Type': 'application/json' } },
     )
   }
@@ -43,7 +61,7 @@ export default async function handler(request: Request): Promise<Response> {
     async start(controller) {
       const emit = (t: string) => controller.enqueue(encoder.encode(t))
       try {
-        await runDeepSeek(apiKey, chartData, emit)
+        await runProvider(cfg, apiKey, chartData, emit)
       } catch (e: any) {
         emit(`\n\n[Lỗi: ${e?.message || 'không xác định'}]`)
       } finally {
@@ -62,24 +80,32 @@ export default async function handler(request: Request): Promise<Response> {
   })
 }
 
-// ─── DeepSeek streaming with auto-continuation when output is cut off ────────
+// ─── OpenAI-compatible streaming with auto-continuation ───────────────────────
 
-async function runDeepSeek(apiKey: string, chartData: any, emit: (t: string) => void): Promise<void> {
+async function runProvider(
+  cfg: typeof PROVIDERS[ProviderKey],
+  apiKey: string,
+  chartData: any,
+  emit: (t: string) => void,
+): Promise<void> {
   const messages: { role: string; content: string }[] = [
     { role: 'system', content: SYSTEM_INSTRUCTION },
-    { role: 'user', content: buildFullPrompt(chartData) },
+    { role: 'user',   content: buildFullPrompt(chartData) },
   ]
 
   for (let pass = 0; pass < 4; pass++) {
-    const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+    const res = await fetch(cfg.url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
       body: JSON.stringify({
-        model: DEEPSEEK_MODEL,
+        model:       cfg.model,
         messages,
-        max_tokens: DEEPSEEK_MAX_TOKENS,
+        max_tokens:  cfg.maxTok,
         temperature: 0.75,
-        stream: true,
+        stream:      true,
       }),
     })
 
@@ -87,28 +113,23 @@ async function runDeepSeek(apiKey: string, chartData: any, emit: (t: string) => 
       const errText = await res.text().catch(() => '')
       let errMsg = ''
       try { errMsg = JSON.parse(errText)?.error?.message ?? '' } catch { /* */ }
-      const low = errMsg.toLowerCase()
+      const low = (errMsg || errText).toLowerCase()
+
       if (res.status === 401 || low.includes('invalid api key') || low.includes('authentication')) {
-        emit('[Lỗi: API key không hợp lệ. Vào ứng dụng → nhấn "Đổi API key" để cập nhật.]')
-        return
+        emit(`[Lỗi: API key ${cfg.label} không hợp lệ. Kiểm tra lại ${cfg.envKey} trên Netlify.]`); return
       }
-      if (res.status === 402 || low.includes('insufficient balance')) {
-        emit('[Lỗi: Tài khoản DeepSeek hết số dư. Vui lòng nạp thêm tại platform.deepseek.com.]')
-        return
+      if (res.status === 402 || low.includes('insufficient balance') || low.includes('quota exceeded')) {
+        emit(`[Lỗi: Tài khoản ${cfg.label} hết số dư / hết quota.]`); return
       }
-      if (res.status === 429 || low.includes('rate limit') || low.includes('quota')) {
-        emit('[Lỗi: Đã vượt giới hạn API. Vui lòng thử lại sau vài giây.]')
-        return
+      if (res.status === 429 || low.includes('rate limit')) {
+        emit(`[Lỗi: ${cfg.label} đang giới hạn tốc độ. Vui lòng thử lại sau vài giây.]`); return
       }
-      emit(`[Lỗi DeepSeek ${res.status}: ${errMsg || errText}]`)
-      return
+      emit(`[Lỗi ${cfg.label} ${res.status}: ${errMsg || errText.slice(0, 200)}]`); return
     }
 
     const decoder = new TextDecoder()
-    const reader = res.body.getReader()
-    let buf = ''
-    let passText = ''
-    let finishReason = ''
+    const reader  = res.body.getReader()
+    let buf = '', passText = '', finishReason = ''
 
     try {
       while (true) {
@@ -134,10 +155,9 @@ async function runDeepSeek(apiKey: string, chartData: any, emit: (t: string) => 
       reader.releaseLock()
     }
 
-    // Natural stop — done
     if (finishReason !== 'length') break
 
-    // Hit token limit — ask to continue from where it stopped
+    // Hit token limit — continue from where stopped
     messages.push({ role: 'assistant', content: passText })
     messages.push({ role: 'user', content: 'Tiếp tục viết các mục còn lại từ chỗ vừa dừng. Không lặp lại nội dung đã có.' })
   }
@@ -145,77 +165,99 @@ async function runDeepSeek(apiKey: string, chartData: any, emit: (t: string) => 
 
 // ─── System instruction ───────────────────────────────────────────────────────
 
-const SYSTEM_INSTRUCTION = `Bạn là Tử Vi sư Việt Nam chuyên nghiệp. Nguyên tắc: (1) xét cung thủ + cung chiếu đối diện; (2) tam hợp/xung ảnh hưởng Mệnh; (3) Tứ Hóa tác động riêng từng cung; (4) Tự Hóa (自化) — sao tự hóa theo Can chính cung: tự hóa Lộc/Quyền/Khoa dễ phát tán ra ngoài, tự hóa Kỵ hao tổn nội tại, cần luận kỹ; (5) tổ hợp sao tương tác nhau; (6) trạng thái Miếu/Vượng/Đắc > Bình > Hãm; (7) Tuần/Triệt làm yếu sao; (8) Đại Hạn kết hợp bản Mệnh. Nhận diện và gọi tên Cách Cục (Tử Phủ triều viên, Song Lộc, Không Kiếp giáp Mệnh, Nhật Nguyệt đồng chiếu, Mã Đầu Đới Tiễn...). Viết tiếng Việt sâu sắc, dẫn chứng tên sao + trạng thái cụ thể.`
+const SYSTEM_INSTRUCTION = `Bạn là Tử Vi sư Việt Nam chuyên nghiệp. Nguyên tắc luận giải:
+(1) Xét cung thủ + cung chiếu đối diện (tam phương tứ chính).
+(2) Tam hợp/xung ảnh hưởng cung Mệnh.
+(3) Tứ Hóa (Lộc/Quyền/Khoa/Kỵ) tác động riêng từng cung, xét hóa nhập và hóa xuất.
+(4) Tự Hóa (自化) — sao tự hóa theo Can chính cung: Tự Hóa Kỵ hao tổn nội tại, Tự Hóa Lộc dễ phát tán ra ngoài.
+(5) Tổ hợp sao tương tác nhau (Tử Phủ, Sát Phá Tham, Cơ Nguyệt Đồng Lương...).
+(6) Trạng thái Miếu/Vượng/Đắc > Bình > Hãm quyết định sức mạnh sao.
+(7) Tuần/Triệt làm yếu sao trong cung đó.
+(8) Đại Hạn + Tiểu Hạn kết hợp bản Mệnh — xét Tứ Hóa riêng của từng hạn.
+Nhận diện Cách Cục (Tử Phủ triều viên, Song Lộc, Lộc Mã Giao Trì, Không Kiếp giáp Mệnh...).
+Viết tiếng Việt sâu sắc, dẫn chứng tên sao + trạng thái + cung cụ thể.`
 
-// ─── Full prompt (17 sections) ────────────────────────────────────────────────
+// ─── Tứ Hóa lookup table (helper for prompt) ─────────────────────────────────
+
+const TU_HOA_LABELS = ['Lộc', 'Quyền', 'Khoa', 'Kỵ'] as const
 
 function fmtTuHoa(th: any): string {
   if (!th) return '—'
   return `Can ${th.can}: ${th.loc.star}→Lộc[${th.loc.palace}] | ${th.quyen.star}→Quyền[${th.quyen.palace}] | ${th.khoa.star}→Khoa[${th.khoa.palace}] | ${th.ky.star}→Kỵ[${th.ky.palace}]`
 }
 
+// ─── Full prompt builder (17 sections, all rich data) ────────────────────────
+
 function buildFullPrompt(d: any): string {
-  const { form, info, danNap, palaces, daiHan, tieuHan, currentYear, currentDH, currentTH,
-          annualStars, menhRelations, tuHoaDH, tuHoaNam, cachCuc, tuHoaList } = d
+  const {
+    form, info, danNap, palaces, daiHan, tieuHan,
+    currentYear, currentDH, currentTH,
+    annualStars, menhRelations, tuHoaDH, tuHoaNam,
+    cachCuc, tuHoaList,
+  } = d
   const age = currentYear - form.year
 
-  // 12 cung — include annual stars per palace
+  // 12 cung
   const palaceLines = palaces.map((p: any) => {
-    const chinh = p.chinhTinh.map((s: any) => `${s.name}(${s.status || '-'})`).join(', ') || 'Trống'
-    const tot = p.saotot.map((s: any) => s.name).join(', ') || '-'
-    const xau = p.saoxau.map((s: any) => s.name).join(', ') || '-'
-    const hoa = [
+    const chinh   = p.chinhTinh.map((s: any) => `${s.name}(${s.status || '-'})`).join(', ') || 'Trống'
+    const tot     = p.saotot.map((s: any) => s.name).join(', ') || '-'
+    const xau     = p.saoxau.map((s: any) => s.name).join(', ') || '-'
+    const hoa     = [
       p.locNhap   && `HóaLộc←${p.locNhap}`,
       p.quyenNhap && `HóaQuyền←${p.quyenNhap}`,
       p.khoaNhap  && `HóaKhoa←${p.khoaNhap}`,
       p.kyNhap    && `HóaKỵ←${p.kyNhap}`,
     ].filter(Boolean).join(', ')
-    const flags = [p.isLife && 'MỆNH', p.isBody && 'THÂN', p.tuan && 'Tuần', p.triet && 'Triệt'].filter(Boolean).join('/')
+    const tuhoa   = p.tuHoa?.length ? ` | TựHóa:${p.tuHoa.map((t: any) => `${t.type}(${t.star})`).join(',')}` : ''
     const annStar = p.annualStars?.length ? ` | lưuniên:${p.annualStars.join(',')}` : ''
-    const tuHoa = p.tuHoa?.length ? ` | TựHóa:${p.tuHoa.map((t: any) => `${t.type}(${t.star})`).join(',')}` : ''
-    return `▸ ${p.name}(${p.canCung})${flags ? ` [${flags}]` : ''}: ${chinh} | cát:${tot} | hung:${xau}${hoa ? ` | ${hoa}` : ''}${tuHoa}${annStar} | ${p.trangSinh}`
+    const flags   = [p.isLife && 'MỆNH', p.isBody && 'THÂN', p.tuan && 'Tuần', p.triet && 'Triệt'].filter(Boolean).join('/')
+    return `▸ ${p.name}(${p.canCung})${flags ? ` [${flags}]` : ''}: ${chinh} | cát:${tot} | hung:${xau}${hoa ? ` | ${hoa}` : ''}${tuhoa}${annStar} | ${p.trangSinh}`
   }).join('\n')
 
-  // Đại Hạn — include each hạn's own Tứ Hóa (from canCung)
+  // Đại Hạn
   const dhLines = daiHan.map((dh: any, i: number) => {
-    const sy = form.year + dh.startAge - 1
+    const sy  = form.year + dh.startAge - 1
     const cur = age >= dh.startAge && age <= dh.endAge
-    const hoaBM = [
-      dh.locNhap && `Lộc←${dh.locNhap}`, dh.quyenNhap && `Quyền←${dh.quyenNhap}`,
-      dh.khoaNhap && `Khoa←${dh.khoaNhap}`, dh.kyNhap && `Kỵ←${dh.kyNhap}`,
+    const hoa = [
+      dh.locNhap   && `Lộc←${dh.locNhap}`,
+      dh.quyenNhap && `Quyền←${dh.quyenNhap}`,
+      dh.khoaNhap  && `Khoa←${dh.khoaNhap}`,
+      dh.kyNhap    && `Kỵ←${dh.kyNhap}`,
     ].filter(Boolean).join(', ')
     const hoaDH = dh.dhTuHoa ? `\n    4HóaDH(${fmtTuHoa(dh.dhTuHoa)})` : ''
-    return `ĐH${i + 1}[${dh.startAge}-${dh.endAge}t|${sy}-${sy + 9}]${cur ? '◄ĐANG CHẠY' : ''} ${dh.cungName}(${dh.chiName}) Can ${dh.canCung} ${dh.trangSinh}: ${dh.chinhTinh.join(',') || 'Trống'} | hung:${dh.saoxau.join(',') || '-'}${hoaBM ? ` | BM: ${hoaBM}` : ''}${hoaDH}`
+    return `ĐH${i+1}[${dh.startAge}-${dh.endAge}t|${sy}-${sy+9}]${cur ? '◄ĐANG CHẠY' : ''} ${dh.cungName}(${dh.chiName}) Can ${dh.canCung} ${dh.trangSinh}: ${dh.chinhTinh.join(',') || 'Trống'} | hung:${dh.saoxau.join(',') || '-'}${hoa ? ` | BM: ${hoa}` : ''}${hoaDH}`
   }).join('\n')
 
-  // Tiểu Hạn — include each hạn's Tứ Hóa
+  // Tiểu Hạn
   const thLines = tieuHan.map((th: any) => {
     const cur = th.years.includes(currentYear)
-    const hoaBM = [
-      th.locNhap && `Lộc←${th.locNhap}`, th.quyenNhap && `Quyền←${th.quyenNhap}`,
-      th.khoaNhap && `Khoa←${th.khoaNhap}`, th.kyNhap && `Kỵ←${th.kyNhap}`,
+    const hoa = [
+      th.locNhap   && `Lộc←${th.locNhap}`,
+      th.quyenNhap && `Quyền←${th.quyenNhap}`,
+      th.khoaNhap  && `Khoa←${th.khoaNhap}`,
+      th.kyNhap    && `Kỵ←${th.kyNhap}`,
     ].filter(Boolean).join(', ')
     const hoaTH = th.thTuHoa ? ` | 4HóaTH(${fmtTuHoa(th.thTuHoa)})` : ''
-    return `${th.yearChi}${cur ? '◄NĂM NAY' : ''}: ${th.cungName} | ${th.chinhTinh.join(',') || 'Trống'} | hung:${th.saoxau?.join(',') || '-'}${hoaBM ? ` | BM: ${hoaBM}` : ''}${hoaTH}`
+    return `${th.yearChi}${cur ? '◄NĂM NAY' : ''}: ${th.cungName} | ${th.chinhTinh.join(',') || 'Trống'} | hung:${th.saoxau?.join(',') || '-'}${hoa ? ` | BM: ${hoa}` : ''}${hoaTH}`
   }).join('\n')
 
   // Cách Cục
   const cachCucLine = cachCuc?.length
     ? cachCuc.join('\n')
-    : 'Chưa phát hiện cách cục đặc biệt rõ ràng — AI tự nhận diện từ dữ liệu.'
+    : 'Chưa phát hiện cách cục đặc biệt — AI tự nhận diện từ dữ liệu.'
 
-  // Tự Hóa (self-transformation)
+  // Tự Hóa
   const tuHoaLine = tuHoaList?.length
     ? tuHoaList.join('\n')
     : 'Không có cung nào tự hóa.'
 
   // Tam hợp / xung Mệnh
   const tamHopLine = menhRelations
-    ? `Mệnh(${menhRelations.menhChi}) tam hợp: ${menhRelations.tamHop.map((r: any) => `${r.cungName}(${r.chi})`).join(', ')}` +
-      (menhRelations.xung ? ` | xung: ${menhRelations.xung.cungName}(${menhRelations.xung.chi})` : '')
-    : ''
+    ? `Mệnh(${menhRelations.menhChi}) tam hợp: ${menhRelations.tamHop.map((r: any) => `${r.cungName}(${r.chi})`).join(', ')}`
+      + (menhRelations.xung ? ` | xung: ${menhRelations.xung.cungName}(${menhRelations.xung.chi})` : '')
+    : '—'
 
-  // Annual stars summary
+  // Annual stars
   const annualLine = Object.entries(annualStars ?? {})
     .map(([cung, stars]: [string, any]) => `${cung}: ${(stars as string[]).join(',')}`)
     .join(' | ') || '—'
@@ -226,7 +268,7 @@ Chủ Mệnh ${info.chuMenh}, Chủ Thân ${info.chuThan}, ${info.thanCu}. Tuổ
 [CÁCH CỤC PHÁT HIỆN]
 ${cachCucLine}
 
-[TỰ HÓA — 自化] (sao trong cung tự hóa theo Can của chính cung; tự hóa Kỵ làm hao tổn nội tại, tự hóa Lộc dễ phát tán)
+[TỰ HÓA — 自化] (sao trong cung tự hóa theo Can chính cung; Tự Hóa Kỵ = hao tổn nội tại, Tự Hóa Lộc = dễ phát tán)
 ${tuHoaLine}
 
 [TAM HỢP / XUNG CUNG MỆNH]
