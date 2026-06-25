@@ -116,7 +116,7 @@ async function runProvider(
       const low = (errMsg || errText).toLowerCase()
 
       if (res.status === 401 || low.includes('invalid api key') || low.includes('authentication')) {
-        emit(`[Lỗi: API key ${cfg.label} không hợp lệ. Kiểm tra lại ${cfg.envKey} trên Netlify.]`); return
+        emit(`[Lỗi 401 ${cfg.label}: ${errMsg || errText.slice(0, 300)}]`); return
       }
       if (res.status === 402 || low.includes('insufficient balance') || low.includes('quota exceeded')) {
         emit(`[Lỗi: Tài khoản ${cfg.label} hết số dư / hết quota.]`); return
