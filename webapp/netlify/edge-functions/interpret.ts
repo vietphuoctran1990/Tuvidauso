@@ -13,8 +13,8 @@ const PROVIDERS = {
     label:    'DeepSeek',
   },
   glm: {
-    url:      'https://open.bigmodel.cn/api/paas/v4/chat/completions',
-    model:    'glm-4-flash',
+    url:      'https://api.zenmux.ai/v1/chat/completions',
+    model:    'glm-5.2',
     maxTok:   8000,
     envKey:   'GLM_API_KEY',
     label:    'GLM',
@@ -117,10 +117,7 @@ async function runProvider(
     { role: 'user',   content: buildFullPrompt(chartData) },
   ]
 
-  // GLM requires a fresh JWT each call; other providers use key directly.
-  const bearerToken = cfg.envKey === 'GLM_API_KEY'
-    ? await glmBearerToken(apiKey)
-    : apiKey
+  const bearerToken = apiKey
 
   for (let pass = 0; pass < 4; pass++) {
     const res = await fetch(cfg.url, {
@@ -145,7 +142,7 @@ async function runProvider(
       const low = (errMsg || errText).toLowerCase()
 
       if (res.status === 401 || low.includes('invalid api key') || low.includes('authentication')) {
-        emit(`[Lỗi 401 GLMv3: ${errMsg || errText.slice(0, 300)}]`); return
+        emit(`[Lỗi 401 ${cfg.label}: ${errMsg || errText.slice(0, 300)}]`); return
       }
       if (res.status === 402 || low.includes('insufficient balance') || low.includes('quota exceeded')) {
         emit(`[Lỗi: Tài khoản ${cfg.label} hết số dư / hết quota.]`); return
