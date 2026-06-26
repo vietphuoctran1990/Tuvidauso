@@ -80,6 +80,30 @@ export default async function handler(request: Request): Promise<Response> {
   })
 }
 
+// ─── JWT generation for Zhipu AI (GLM) ───────────────────────────────────────
+// GLM API key format: "{id}.{secret}" — must be converted to a signed JWT.
+
+async function glmBearerToken(apiKey: string): Promise<string> {
+  const dot = apiKey.indexOf('.')
+  if (dot < 0) return apiKey // not the expected format — use as-is
+  const id = apiKey.slice(0, dot)
+  const secret = apiKey.slice(dot + 1)
+  const now = Date.now()
+  const b64url = (obj: object) =>
+    btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+  const header  = b64url({ alg: 'HS256', sign_type: 'SIGN' })
+  const payload = b64url({ api_key: id, exp: now + 3_600_000, timestamp: now })
+  const input   = `${header}.${payload}`
+  const key = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+  )
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(input))
+  const b64sig = btoa(String.fromCharCode(...new Uint8Array(sig)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+  return `${input}.${b64sig}`
+}
+
 // ─── OpenAI-compatible streaming with auto-continuation ───────────────────────
 
 async function runProvider(
@@ -93,12 +117,17 @@ async function runProvider(
     { role: 'user',   content: buildFullPrompt(chartData) },
   ]
 
+  // GLM requires a fresh JWT each call; other providers use key directly.
+  const bearerToken = cfg.envKey === 'GLM_API_KEY'
+    ? await glmBearerToken(apiKey)
+    : apiKey
+
   for (let pass = 0; pass < 4; pass++) {
     const res = await fetch(cfg.url, {
       method: 'POST',
       headers: {
         'Content-Type':  'application/json',
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': `Bearer ${bearerToken}`,
       },
       body: JSON.stringify({
         model:       cfg.model,
