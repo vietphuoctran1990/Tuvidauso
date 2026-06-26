@@ -13,7 +13,7 @@ const PROVIDERS = {
     label:    'DeepSeek',
   },
   glm: {
-    url:      'https://api.zenmux.ai/v1/chat/completions',
+    url:      'https://zenmux.ai/api/v1/chat/completions',
     model:    'glm-5.2',
     maxTok:   8000,
     envKey:   'GLM_API_KEY',
