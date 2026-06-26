@@ -91,7 +91,7 @@ async function glmBearerToken(apiKey: string): Promise<string> {
   const now = Date.now()
   const b64url = (obj: object) =>
     btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
-  const header  = b64url({ alg: 'HS256', sign_type: 'SIGN' })
+  const header  = b64url({ alg: 'HS256', typ: 'JWT', sign_type: 'SIGN' })
   const payload = b64url({ api_key: id, exp: now + 3_600_000, timestamp: now })
   const input   = `${header}.${payload}`
   const key = await crypto.subtle.importKey(
@@ -145,7 +145,7 @@ async function runProvider(
       const low = (errMsg || errText).toLowerCase()
 
       if (res.status === 401 || low.includes('invalid api key') || low.includes('authentication')) {
-        emit(`[Lỗi 401 ${cfg.label}: ${errMsg || errText.slice(0, 300)}]`); return
+        emit(`[Lỗi 401 GLMv3: ${errMsg || errText.slice(0, 300)}]`); return
       }
       if (res.status === 402 || low.includes('insufficient balance') || low.includes('quota exceeded')) {
         emit(`[Lỗi: Tài khoản ${cfg.label} hết số dư / hết quota.]`); return
