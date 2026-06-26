@@ -1,27 +1,8 @@
-// Netlify Edge Function — Tử Vi AI analysis
-// Supports two providers selectable per request:
-//   • "deepseek"  → DeepSeek API  (DEEPSEEK_API_KEY env var)
-//   • "glm"       → Zhipu AI GLM  (GLM_API_KEY env var)
-// Both use OpenAI-compatible streaming with multi-turn continuation.
+// Netlify Edge Function — Tử Vi AI analysis via DeepSeek
 
-const PROVIDERS = {
-  deepseek: {
-    url:      'https://api.deepseek.com/v1/chat/completions',
-    model:    'deepseek-chat',
-    maxTok:   8000,
-    envKey:   'DEEPSEEK_API_KEY',
-    label:    'DeepSeek',
-  },
-  glm: {
-    url:      'https://zenmux.ai/api/v1/chat/completions',
-    model:    'glm-5.2',
-    maxTok:   8000,
-    envKey:   'GLM_API_KEY',
-    label:    'GLM',
-  },
-} as const
-
-type ProviderKey = keyof typeof PROVIDERS
+const DEEPSEEK_URL   = 'https://api.deepseek.com/v1/chat/completions'
+const DEEPSEEK_MODEL = 'deepseek-chat'
+const DEEPSEEK_MAX   = 8000
 
 export default async function handler(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') {
@@ -36,22 +17,19 @@ export default async function handler(request: Request): Promise<Response> {
   if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 })
 
   let chartData: any
-  let providerKey: ProviderKey = 'deepseek'
   try {
     const body = await request.json()
     chartData = body.chartData
-    if (body.provider === 'glm') providerKey = 'glm'
   } catch {
     return new Response('Invalid JSON', { status: 400 })
   }
 
-  const cfg = PROVIDERS[providerKey]
   // @ts-ignore – Deno global
-  const apiKey: string | undefined = Deno.env.get(cfg.envKey)?.trim()
+  const apiKey: string | undefined = Deno.env.get('DEEPSEEK_API_KEY')?.trim()
 
   if (!apiKey) {
     return new Response(
-      JSON.stringify({ error: `Chưa có API key cho ${cfg.label}. Vui lòng thêm ${cfg.envKey} vào Netlify Environment Variables.` }),
+      JSON.stringify({ error: 'Chưa có DeepSeek API key. Vui lòng thêm DEEPSEEK_API_KEY vào Netlify Environment Variables.' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } },
     )
   }
@@ -61,7 +39,7 @@ export default async function handler(request: Request): Promise<Response> {
     async start(controller) {
       const emit = (t: string) => controller.enqueue(encoder.encode(t))
       try {
-        await runProvider(cfg, apiKey, chartData, emit)
+        await runProvider(apiKey, chartData, emit)
       } catch (e: any) {
         emit(`\n\n[Lỗi: ${e?.message || 'không xác định'}]`)
       } finally {
@@ -80,34 +58,9 @@ export default async function handler(request: Request): Promise<Response> {
   })
 }
 
-// ─── JWT generation for Zhipu AI (GLM) ───────────────────────────────────────
-// GLM API key format: "{id}.{secret}" — must be converted to a signed JWT.
-
-async function glmBearerToken(apiKey: string): Promise<string> {
-  const dot = apiKey.indexOf('.')
-  if (dot < 0) return apiKey // not the expected format — use as-is
-  const id = apiKey.slice(0, dot)
-  const secret = apiKey.slice(dot + 1)
-  const now = Date.now()
-  const b64url = (obj: object) =>
-    btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
-  const header  = b64url({ alg: 'HS256', typ: 'JWT', sign_type: 'SIGN' })
-  const payload = b64url({ api_key: id, exp: now + 3_600_000, timestamp: now })
-  const input   = `${header}.${payload}`
-  const key = await crypto.subtle.importKey(
-    'raw', new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
-  )
-  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(input))
-  const b64sig = btoa(String.fromCharCode(...new Uint8Array(sig)))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
-  return `${input}.${b64sig}`
-}
-
-// ─── OpenAI-compatible streaming with auto-continuation ───────────────────────
+// ─── DeepSeek streaming with auto-continuation ───────────────────────────────
 
 async function runProvider(
-  cfg: typeof PROVIDERS[ProviderKey],
   apiKey: string,
   chartData: any,
   emit: (t: string) => void,
@@ -117,19 +70,17 @@ async function runProvider(
     { role: 'user',   content: buildFullPrompt(chartData) },
   ]
 
-  const bearerToken = apiKey
-
   for (let pass = 0; pass < 4; pass++) {
-    const res = await fetch(cfg.url, {
+    const res = await fetch(DEEPSEEK_URL, {
       method: 'POST',
       headers: {
         'Content-Type':  'application/json',
-        'Authorization': `Bearer ${bearerToken}`,
+        'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model:       cfg.model,
+        model:       DEEPSEEK_MODEL,
         messages,
-        max_tokens:  cfg.maxTok,
+        max_tokens:  DEEPSEEK_MAX,
         temperature: 0.75,
         stream:      true,
       }),
@@ -142,15 +93,15 @@ async function runProvider(
       const low = (errMsg || errText).toLowerCase()
 
       if (res.status === 401 || low.includes('invalid api key') || low.includes('authentication')) {
-        emit(`[Lỗi 401 ${cfg.label}: ${errMsg || errText.slice(0, 300)}]`); return
+        emit(`[Lỗi 401 DeepSeek: ${errMsg || errText.slice(0, 300)}]`); return
       }
       if (res.status === 402 || low.includes('insufficient balance') || low.includes('quota exceeded')) {
-        emit(`[Lỗi: Tài khoản ${cfg.label} hết số dư / hết quota.]`); return
+        emit(`[Lỗi: Tài khoản DeepSeek hết số dư / hết quota.]`); return
       }
       if (res.status === 429 || low.includes('rate limit')) {
-        emit(`[Lỗi: ${cfg.label} đang giới hạn tốc độ. Vui lòng thử lại sau vài giây.]`); return
+        emit(`[Lỗi: DeepSeek đang giới hạn tốc độ. Vui lòng thử lại sau vài giây.]`); return
       }
-      emit(`[Lỗi ${cfg.label} ${res.status}: ${errMsg || errText.slice(0, 200)}]`); return
+      emit(`[Lỗi DeepSeek ${res.status}: ${errMsg || errText.slice(0, 200)}]`); return
     }
 
     const decoder = new TextDecoder()

@@ -546,7 +546,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
   const [done, setDone] = useState(false)
   const [toast, setToast] = useState('')
   const [targetYear, setTargetYear] = useState<number>(initialYear ?? new Date().getFullYear())
-  const [provider, setProvider] = useState<'deepseek' | 'glm'>('deepseek')
+  const provider = 'deepseek'
   const [cooldown, setCooldown] = useState(0)
   useEffect(() => {
     if (initialYear !== undefined) setTargetYear(initialYear)
@@ -630,17 +630,6 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
           <h2>Phân Tích Lá Số</h2>
           <p>Luận giải lá số của <strong>{form.name || 'bạn'}</strong> — tính cách, sự nghiệp, tài chính, tình duyên, sức khỏe, đại hạn và tiểu hạn.</p>
 
-          <div className="provider-row">
-            <button
-              className={`provider-btn${provider === 'deepseek' ? ' provider-active' : ''}`}
-              onClick={() => setProvider('deepseek')}
-            >🧠 DeepSeek</button>
-            <button
-              className={`provider-btn${provider === 'glm' ? ' provider-active' : ''}`}
-              onClick={() => setProvider('glm')}
-            >✦ GLM (Zhipu)</button>
-          </div>
-
           <div className="year-picker-row">
             <label className="year-picker-label">Xem vận năm:</label>
             <select
@@ -663,7 +652,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
             ✦ Phân tích chuyên sâu
           </button>
           <p className="is-note">
-            Năm {targetYear} · {provider === 'deepseek' ? 'DeepSeek' : 'GLM (Zhipu)'} · Phân tích chi tiết đầy đủ
+            Năm {targetYear} · DeepSeek · Phân tích chi tiết đầy đủ
           </p>
         </div>
       )}
@@ -672,7 +661,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
         <div className="interpret-loading">
           <div className="spin-container"><span className="spin-sym">☯</span></div>
           <p>Đang phân tích lá số tử vi...</p>
-          <p className="load-sub">{provider === 'deepseek' ? 'DeepSeek đang đọc các sao và tổng hợp kết quả' : 'GLM đang đọc các sao và tổng hợp kết quả'}</p>
+          <p className="load-sub">DeepSeek đang đọc các sao và tổng hợp kết quả</p>
         </div>
       )}
 
@@ -685,7 +674,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
       {text && (
         <div className="interpret-result">
           <div className="interpret-year-badge">
-            {provider === 'deepseek' ? '🧠 DeepSeek' : '✦ GLM (Zhipu)'} · Năm {targetYear}
+            🧠 DeepSeek · Năm {targetYear}
           </div>
           <MdText text={text} />
           {loading && <span className="cursor-blink">▌</span>}
@@ -709,12 +698,6 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
             onClick={e => { createRipple(e); handleAnalyze() }}
           >
             {cooldown > 0 ? `🔄 Phân tích lại (${cooldown}s)` : '🔄 Phân tích lại'}
-          </button>
-          <button
-            className="btn-switch-provider"
-            onClick={e => { createRipple(e); setProvider(p => p === 'deepseek' ? 'glm' : 'deepseek'); setCooldown(0); setText(''); setDone(false); setError('') }}
-          >
-            {provider === 'deepseek' ? '✦ Dùng GLM' : '🧠 Dùng DeepSeek'}
           </button>
           {done && error === '' && (
             <>
