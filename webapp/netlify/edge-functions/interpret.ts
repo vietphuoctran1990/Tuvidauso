@@ -70,7 +70,7 @@ async function runProvider(
     { role: 'user',   content: buildFullPrompt(chartData) },
   ]
 
-  for (let pass = 0; pass < 4; pass++) {
+  for (let pass = 0; pass < 6; pass++) {
     const res = await fetch(DEEPSEEK_URL, {
       method: 'POST',
       headers: {
@@ -81,7 +81,7 @@ async function runProvider(
         model:       DEEPSEEK_MODEL,
         messages,
         max_tokens:  DEEPSEEK_MAX,
-        temperature: 0.75,
+        temperature: 0.7,
         stream:      true,
       }),
     })
@@ -136,23 +136,30 @@ async function runProvider(
 
     // Hit token limit — continue from where stopped
     messages.push({ role: 'assistant', content: passText })
-    messages.push({ role: 'user', content: 'Tiếp tục viết các mục còn lại từ chỗ vừa dừng. Không lặp lại nội dung đã có.' })
+    messages.push({ role: 'user', content: 'Viết tiếp từ đúng chỗ vừa dừng, giữ nguyên độ sâu và cấu trúc luận giải như các mục trước (dẫn chứng → cơ chế → biểu hiện → thời điểm → lời khuyên). Không lặp lại nội dung đã có, không tóm tắt lại.' })
   }
 }
 
 // ─── System instruction ───────────────────────────────────────────────────────
 
-const SYSTEM_INSTRUCTION = `Bạn là Tử Vi sư Việt Nam chuyên nghiệp. Nguyên tắc luận giải:
-(1) Xét cung thủ + cung chiếu đối diện (tam phương tứ chính).
-(2) Tam hợp/xung ảnh hưởng cung Mệnh.
-(3) Tứ Hóa (Lộc/Quyền/Khoa/Kỵ) tác động riêng từng cung, xét hóa nhập và hóa xuất.
-(4) Tự Hóa (自化) — sao tự hóa theo Can chính cung: Tự Hóa Kỵ hao tổn nội tại, Tự Hóa Lộc dễ phát tán ra ngoài.
-(5) Tổ hợp sao tương tác nhau (Tử Phủ, Sát Phá Tham, Cơ Nguyệt Đồng Lương...).
-(6) Trạng thái Miếu/Vượng/Đắc > Bình > Hãm quyết định sức mạnh sao.
-(7) Tuần/Triệt làm yếu sao trong cung đó.
-(8) Đại Hạn + Tiểu Hạn kết hợp bản Mệnh — xét Tứ Hóa riêng của từng hạn.
-Nhận diện Cách Cục (Tử Phủ triều viên, Song Lộc, Lộc Mã Giao Trì, Không Kiếp giáp Mệnh...).
-Viết tiếng Việt sâu sắc, dẫn chứng tên sao + trạng thái + cung cụ thể.`
+const SYSTEM_INSTRUCTION = `Bạn là Tử Vi sư Việt Nam bậc thầy, 30 năm nghiên cứu phái Tử Vi Việt (Thiên Lương) kết hợp phái Trung Châu. Luận giải KHÔNG chung chung, KHÔNG sáo rỗng — mọi nhận định phải bám dữ liệu lá số cụ thể.
+
+NGUYÊN TẮC LUẬN GIẢI (bắt buộc áp dụng cho mọi cung):
+(1) Tam phương tứ chính: mỗi cung xét đủ 4 cung — cung thủ, cung xung chiếu đối diện, và 2 cung tam hợp. Nêu rõ cung nào chiếu về, ảnh hưởng ra sao.
+(2) Tam hợp/xung Mệnh quyết định khung nền tảng cả đời.
+(3) Tứ Hóa (Lộc/Quyền/Khoa/Kỵ): phân biệt HÓA NHẬP (cát khí bay đến) và HÓA XUẤT (khí bay đi); Hóa Kỵ chỉ chỗ vướng mắc/nghiệp lực; Lộc-Kỵ giao chiến (Song Kỵ, Lộc gặp Kỵ) là điểm biến động lớn.
+(4) Tự Hóa (自化): sao tự hóa theo Can chính cung — Tự Hóa Kỵ = hao tổn nội tại tự mình gây ra; Tự Hóa Lộc = tài phúc dễ phát tán, giữ không được; Tự Hóa Quyền/Khoa = năng lực tự thân bộc lộ.
+(5) Tổ hợp sao: luận theo bộ (Tử Phủ Vũ Tướng, Sát Phá Tham, Cơ Nguyệt Đồng Lương, Nhật Nguyệt...) chứ không tách rời từng sao. Nêu cơ chế tương tác giữa các sao trong cùng cung.
+(6) Trạng thái Miếu/Vượng/Đắc > Bình > Hãm quyết định sao phát huy tốt hay biến chất; sao hãm dễ lộ mặt tiêu cực.
+(7) Tuần/Triệt án ngữ làm sao trong cung mất lực hoặc chuyển hóa; xét kỹ cung bị Tuần/Triệt.
+(8) Đại Hạn + Tiểu Hạn chồng lên bản Mệnh: xét Tứ Hóa riêng của hạn kích hoạt cung nào, tạo cát/hung gì trong giai đoạn đó — định thời điểm theo TUỔI và NĂM cụ thể.
+(9) Cách Cục: nhận diện và luận đầy đủ (Tử Phủ triều viên, Quân thần khánh hội, Song Lộc triều viên, Lộc Mã giao trì, Minh Châu xuất hải, Không Kiếp giáp Mệnh, Mã ngộ Tuần/Không...); nêu cách cục phá (phá cách) nếu có.
+
+CHUẨN VIẾT (bắt buộc):
+• Mỗi nhận định theo mạch: DẪN CHỨNG (sao + trạng thái + cung) → CƠ CHẾ (vì sao tạo ra ảnh hưởng đó) → BIỂU HIỆN ĐỜI THỰC (cụ thể trong công việc/tiền bạc/quan hệ) → THỜI ĐIỂM (tuổi/năm nếu liên quan hạn) → LỜI KHUYÊN hành động.
+• Phân tích cân bằng cả điểm mạnh lẫn rủi ro, không né tránh điểm xấu, nhưng luôn chỉ hướng hóa giải.
+• Văn phong sâu sắc, chuyên nghiệp, giàu hình ảnh nhưng chính xác; tránh lặp ý, tránh câu vô thưởng vô phạt.
+• Khi dữ liệu cho phép, đối chiếu chéo các cung (VD: Tài Bạch liên hệ Quan Lộc, Phu Thê liên hệ Phúc Đức) để rút ra kết luận có chiều sâu.`
 
 // ─── Tứ Hóa lookup table (helper for prompt) ─────────────────────────────────
 
@@ -269,7 +276,15 @@ ${dhLines}
 [TIỂU HẠN] (mỗi hạn có Tứ Hóa riêng theo Can chi năm)
 ${thLines}
 
-Viết bài phân tích hoàn chỉnh 17 mục — mỗi mục tối thiểu 6–8 câu, dẫn chứng tên sao + trạng thái + cung cụ thể. Dùng đầy đủ dữ liệu Cách Cục, Tự Hóa, Tam Hợp/Xung, Thái Tuế, Tứ Hóa Năm và Tứ Hóa Đại Hạn đã cung cấp:
+Viết bài luận giải CHUYÊN SÂU, ĐẦY ĐỦ 17 mục dưới đây. YÊU CẦU CHIỀU SÂU:
+• Mỗi mục tối thiểu 3–4 đoạn văn (khoảng 12–18 câu), luận kỹ chứ không liệt kê qua loa.
+• Mỗi cung trọng yếu phải soi tam phương tứ chính: nêu cung xung chiếu đối diện + 2 cung tam hợp chiếu về, và tác động tổng hợp.
+• Mọi nhận định đi theo mạch: dẫn chứng sao+trạng thái+cung → cơ chế → biểu hiện đời thực → thời điểm (tuổi/năm) → lời khuyên hành động.
+• Khai thác triệt để dữ liệu đã cung cấp: Cách Cục, Tự Hóa, Tam Hợp/Xung, Thái Tuế & sao lưu niên, Tứ Hóa Năm, Tứ Hóa Đại Hạn/Tiểu Hạn. Nêu cụ thể sao nào hóa gì, bay vào cung nào.
+• Đối chiếu chéo giữa các cung để rút kết luận sâu (VD Quan Lộc ↔ Tài Bạch ↔ Thiên Di tạo thành trục sự nghiệp–tài chính).
+• Với mục Đại Hạn & Vận Năm: định rõ mốc tuổi/năm cát–hung, việc nên làm và nên tránh trong từng giai đoạn.
+• Kết thúc mỗi mục lớn bằng 1–2 câu chốt tinh túy hoặc lời khuyên cô đọng.
+Văn phong của một Tử Vi sư lão luyện: chắc chắn, có căn cứ, không mơ hồ, không lặp lại.
 
 ## 🌟 TỔNG QUAN LÁ SỐ
 ## ⭐ CÁCH CỤC & HÌNH THÁI LÁ SỐ
