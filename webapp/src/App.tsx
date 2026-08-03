@@ -708,6 +708,8 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
         </div>
       )}
 
+      {done && error === '' && <MenhAffiliate year={form.year} />}
+
       {toast && <div className="share-toast">{toast}</div>}
     </div>
   )
@@ -1300,6 +1302,21 @@ function banMenh(year: number): { name: string; hanh: 'Kim' | 'Mộc' | 'Thủy'
   return NAP_AM[Math.floor(idx / 2)]
 }
 
+// 👉 POOL LINK AFFILIATE LAZADA — thêm/bớt link tùy ý.
+//    Mỗi vật phẩm không có url riêng sẽ tự lấy 1 link từ pool này (xoay vòng),
+//    đảm bảo mọi nút "Xem trên Lazada" đều bấm được.
+const LAZADA_LINKS: string[] = [
+  'https://s.lazada.vn/s.M0CDc?c=c&t=p-i1eRSiW-s6vbdMw',
+  'https://s.lazada.vn/s.M0CCq?c=c&t=p-ifWOVf-s1XkuA1',
+  'https://s.lazada.vn/s.M0Cy6?c=d&t=p-ioRQHJ-s26erxY',
+  'https://s.lazada.vn/s.M0CBP?c=c&t=p-i2V8yUg-sC8Vnz6',
+  'https://s.lazada.vn/s.M0CBz?c=d&t=p-i1sUOYl-s8MsnWt',
+  'https://s.lazada.vn/s.M0Cz7?c=c&t=p-i2NyOlQ-sBKLYEi',
+]
+
+// Điểm bắt đầu lấy link cho mỗi mệnh (để 5 mệnh dùng đủ các link khác nhau)
+const HANH_LINK_OFFSET: Record<string, number> = { Kim: 0, Mộc: 4, Thủy: 2, Hỏa: 0, Thổ: 4 }
+
 type VatPham = { icon: string; name: string; benefit: string; url: string }
 
 // Màu tương hợp + vật phẩm gợi ý theo từng ngũ hành bản mệnh.
@@ -1349,6 +1366,9 @@ function MenhAffiliate({ year }: { year: number }) {
   const menh = banMenh(year)
   const style = HANH_STYLE[menh.hanh]
   const items = VAT_PHAM_HOP_MENH[menh.hanh] ?? []
+  const offset = HANH_LINK_OFFSET[menh.hanh] ?? 0
+  const linkFor = (it: VatPham, i: number): string =>
+    it.url || (LAZADA_LINKS.length ? LAZADA_LINKS[(offset + i) % LAZADA_LINKS.length] : '')
   return (
     <div className="menh-aff" style={{ '--menh-clr': style.hex } as React.CSSProperties}>
       <div className="menh-aff-head">
@@ -1360,18 +1380,21 @@ function MenhAffiliate({ year }: { year: number }) {
         </div>
       </div>
       <div className="menh-aff-grid">
-        {items.map((it, i) => (
-          <div className="maff-card" key={i}>
-            <div className="maff-icon">{it.icon}</div>
-            <div className="maff-body">
-              <div className="maff-name">{it.name}</div>
-              <div className="maff-benefit">{it.benefit}</div>
+        {items.map((it, i) => {
+          const url = linkFor(it, i)
+          return (
+            <div className="maff-card" key={i}>
+              <div className="maff-icon">{it.icon}</div>
+              <div className="maff-body">
+                <div className="maff-name">{it.name}</div>
+                <div className="maff-benefit">{it.benefit}</div>
+              </div>
+              {url
+                ? <a className="maff-btn" href={url} target="_blank" rel="noopener sponsored nofollow">Xem trên Lazada ↗</a>
+                : <span className="maff-btn maff-btn-soon">Sắp có</span>}
             </div>
-            {it.url
-              ? <a className="maff-btn" href={it.url} target="_blank" rel="noopener sponsored nofollow">Xem trên Lazada ↗</a>
-              : <span className="maff-btn maff-btn-soon">Sắp có</span>}
-          </div>
-        ))}
+          )
+        })}
       </div>
       <p className="menh-aff-note">Gợi ý theo ngũ hành bản mệnh · Mua qua liên kết giúp ủng hộ website duy trì miễn phí 🙏</p>
     </div>
