@@ -1564,3 +1564,69 @@ body {
 .tp-slot-empty { font-size: 18px; color: var(--border-mid); text-align: center; padding: 16px 0; }
 [data-theme="dark"] .tp-panel { background: var(--surf-1); border-color: rgba(139,92,246,.25); }
 [data-theme="dark"] .tp-slot { background: color-mix(in srgb, var(--tp-color, transparent) 9%, var(--surf-3)); }
+
+/* ── Block affiliate: Vật phẩm phong thủy hợp mệnh ──────────── */
+.menh-aff {
+  margin-top: 22px; padding: 18px 18px 14px;
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--menh-clr, var(--gold)) 40%, var(--border-dim));
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--menh-clr, var(--gold)) 8%, var(--surf-1)),
+      var(--surf-1));
+  box-shadow: 0 0 22px color-mix(in srgb, var(--menh-clr, var(--gold)) 14%, transparent);
+  animation: resultReveal .45s cubic-bezier(.22,1,.36,1);
+}
+.menh-aff-head { text-align: center; margin-bottom: 14px; }
+.menh-aff-title {
+  font-family: var(--font-title); font-size: 15px; font-weight: 700;
+  color: var(--menh-clr, var(--gold)); letter-spacing: .3px;
+}
+.menh-aff-title b { color: var(--menh-clr, var(--gold)); }
+.menh-aff-sub { font-size: 11.5px; color: var(--text-3); margin-top: 4px; }
+.menh-aff-sub b { color: var(--text-2); }
+.menh-aff-grid {
+  display: grid; grid-template-columns: 1fr; gap: 10px;
+}
+@media (min-width: 560px) { .menh-aff-grid { grid-template-columns: repeat(2, 1fr); } }
+.maff-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 13px; border-radius: var(--radius-md);
+  background: var(--surf-2); border: 1px solid var(--border-dim);
+  transition: transform .18s, border-color .18s, box-shadow .18s;
+}
+.maff-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--menh-clr, var(--gold)) 55%, var(--border-mid));
+  box-shadow: 0 6px 18px rgba(0,0,0,.10);
+}
+.maff-icon {
+  font-size: 30px; line-height: 1; flex-shrink: 0;
+  width: 46px; height: 46px; display: flex; align-items: center; justify-content: center;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--menh-clr, var(--gold)) 12%, var(--surf-3));
+}
+.maff-body { flex: 1; min-width: 0; }
+.maff-name {
+  font-family: var(--font-title); font-size: 13px; font-weight: 700; color: var(--text-1);
+  line-height: 1.3;
+}
+.maff-benefit { font-size: 10.5px; color: var(--text-3); margin-top: 3px; line-height: 1.5; }
+.maff-btn {
+  flex-shrink: 0; white-space: nowrap;
+  padding: 7px 12px; border-radius: 18px;
+  font-family: var(--font-title); font-size: 10.5px; font-weight: 700; letter-spacing: .3px;
+  text-decoration: none; cursor: pointer; transition: all .18s;
+  background: var(--menh-clr, var(--gold)); color: #fff; border: none;
+}
+.maff-btn:hover { filter: brightness(1.08); box-shadow: 0 4px 14px color-mix(in srgb, var(--menh-clr, var(--gold)) 45%, transparent); }
+.maff-btn-soon {
+  background: var(--surf-3); color: var(--text-3);
+  border: 1px dashed var(--border-mid); cursor: default;
+}
+.maff-btn-soon:hover { filter: none; box-shadow: none; }
+.menh-aff-note {
+  text-align: center; font-size: 10.5px; color: var(--text-3);
+  margin-top: 12px; line-height: 1.5;
+}
+[data-theme="dark"] .maff-card { background: var(--surf-3); }

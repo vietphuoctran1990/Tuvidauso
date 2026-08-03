@@ -1253,6 +1253,131 @@ function TamPhuongPanel({ data, onClose, onSelectCung }: {
   )
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+//  VẬT PHẨM PHONG THỦY HỢP MỆNH  —  Block affiliate Lazada
+//  Bản mệnh (nạp âm) tính theo năm sinh → gợi ý vật phẩm hợp ngũ hành.
+//
+//  👉 DÁN LINK AFFILIATE LAZADA CỦA BẠN VÀO Ô  url: '...'  BÊN DƯỚI.
+//     Để trống ('') thì nút hiện "Sắp có" (không click được).
+// ══════════════════════════════════════════════════════════════════════════
+
+// 30 cặp Can-Chi nạp âm (mỗi cặp 2 năm) → tên + ngũ hành bản mệnh
+const NAP_AM: { name: string; hanh: 'Kim' | 'Mộc' | 'Thủy' | 'Hỏa' | 'Thổ' }[] = [
+  { name: 'Hải Trung Kim',  hanh: 'Kim'  }, // Giáp Tý · Ất Sửu
+  { name: 'Lư Trung Hỏa',   hanh: 'Hỏa'  }, // Bính Dần · Đinh Mão
+  { name: 'Đại Lâm Mộc',    hanh: 'Mộc'  }, // Mậu Thìn · Kỷ Tỵ
+  { name: 'Lộ Bàng Thổ',    hanh: 'Thổ'  }, // Canh Ngọ · Tân Mùi
+  { name: 'Kiếm Phong Kim', hanh: 'Kim'  }, // Nhâm Thân · Quý Dậu
+  { name: 'Sơn Đầu Hỏa',    hanh: 'Hỏa'  }, // Giáp Tuất · Ất Hợi
+  { name: 'Giản Hạ Thủy',   hanh: 'Thủy' }, // Bính Tý · Đinh Sửu
+  { name: 'Thành Đầu Thổ',  hanh: 'Thổ'  }, // Mậu Dần · Kỷ Mão
+  { name: 'Bạch Lạp Kim',   hanh: 'Kim'  }, // Canh Thìn · Tân Tỵ
+  { name: 'Dương Liễu Mộc', hanh: 'Mộc'  }, // Nhâm Ngọ · Quý Mùi
+  { name: 'Tuyền Trung Thủy', hanh: 'Thủy' }, // Giáp Thân · Ất Dậu
+  { name: 'Ốc Thượng Thổ',  hanh: 'Thổ'  }, // Bính Tuất · Đinh Hợi
+  { name: 'Tích Lịch Hỏa',  hanh: 'Hỏa'  }, // Mậu Tý · Kỷ Sửu
+  { name: 'Tùng Bách Mộc',  hanh: 'Mộc'  }, // Canh Dần · Tân Mão
+  { name: 'Trường Lưu Thủy', hanh: 'Thủy' }, // Nhâm Thìn · Quý Tỵ
+  { name: 'Sa Trung Kim',   hanh: 'Kim'  }, // Giáp Ngọ · Ất Mùi
+  { name: 'Sơn Hạ Hỏa',     hanh: 'Hỏa'  }, // Bính Thân · Đinh Dậu
+  { name: 'Bình Địa Mộc',   hanh: 'Mộc'  }, // Mậu Tuất · Kỷ Hợi
+  { name: 'Bích Thượng Thổ', hanh: 'Thổ' }, // Canh Tý · Tân Sửu
+  { name: 'Kim Bạch Kim',   hanh: 'Kim'  }, // Nhâm Dần · Quý Mão
+  { name: 'Phú Đăng Hỏa',   hanh: 'Hỏa'  }, // Giáp Thìn · Ất Tỵ
+  { name: 'Thiên Hà Thủy',  hanh: 'Thủy' }, // Bính Ngọ · Đinh Mùi
+  { name: 'Đại Trạch Thổ',  hanh: 'Thổ'  }, // Mậu Thân · Kỷ Dậu
+  { name: 'Thoa Xuyến Kim', hanh: 'Kim'  }, // Canh Tuất · Tân Hợi
+  { name: 'Tang Đố Mộc',    hanh: 'Mộc'  }, // Nhâm Tý · Quý Sửu
+  { name: 'Đại Khê Thủy',   hanh: 'Thủy' }, // Giáp Dần · Ất Mão
+  { name: 'Sa Trung Thổ',   hanh: 'Thổ'  }, // Bính Thìn · Đinh Tỵ
+  { name: 'Thiên Thượng Hỏa', hanh: 'Hỏa' }, // Mậu Ngọ · Kỷ Mùi
+  { name: 'Thạch Lựu Mộc',  hanh: 'Mộc'  }, // Canh Thân · Tân Dậu
+  { name: 'Đại Hải Thủy',   hanh: 'Thủy' }, // Nhâm Tuất · Quý Hợi
+]
+
+function banMenh(year: number): { name: string; hanh: 'Kim' | 'Mộc' | 'Thủy' | 'Hỏa' | 'Thổ' } {
+  const idx = (((year - 4) % 60) + 60) % 60
+  return NAP_AM[Math.floor(idx / 2)]
+}
+
+type VatPham = { icon: string; name: string; benefit: string; url: string }
+
+// Màu tương hợp + vật phẩm gợi ý theo từng ngũ hành bản mệnh.
+// url: '' → nút "Sắp có". Dán link affiliate Lazada vào để kích hoạt.
+const HANH_STYLE: Record<string, { hex: string; colors: string }> = {
+  Kim:  { hex: '#d4a418', colors: 'trắng · ánh kim · vàng nhạt · xám' },
+  Mộc:  { hex: '#16a34a', colors: 'xanh lá · xanh lục · nâu gỗ' },
+  Thủy: { hex: '#2563eb', colors: 'đen · xanh dương · xanh nước biển' },
+  Hỏa:  { hex: '#dc2626', colors: 'đỏ · hồng · tím · cam' },
+  Thổ:  { hex: '#b45309', colors: 'vàng đất · nâu · be' },
+}
+
+const VAT_PHAM_HOP_MENH: Record<string, VatPham[]> = {
+  Kim: [
+    { icon: '📿', name: 'Vòng tay Thạch Anh Trắng', benefit: 'Hợp mệnh Kim, thanh lọc năng lượng, tăng minh mẫn', url: '' },
+    { icon: '🐲', name: 'Tỳ Hưu bạc chiêu tài',      benefit: 'Kim khí vượng tài lộc, giữ của, hộ thân',       url: '' },
+    { icon: '🐅', name: 'Vòng đá Mắt Hổ Trắng',      benefit: 'Bồi bổ hành Kim, tăng ý chí & quyết đoán',      url: '' },
+    { icon: '💠', name: 'Mặt dây Thiềm Thừ (cóc)',    benefit: 'Chiêu tài, hợp người mệnh Kim làm ăn',          url: '' },
+  ],
+  Mộc: [
+    { icon: '🌿', name: 'Vòng gỗ Trầm Hương',        benefit: 'Hợp mệnh Mộc, an thần, ổn định tinh thần',     url: '' },
+    { icon: '🪴', name: 'Cây phong thủy để bàn',      benefit: 'Mộc khí sinh vượng, hút tài, thanh lọc khí',   url: '' },
+    { icon: '🟢', name: 'Vòng đá Thạch Anh Xanh',    benefit: 'Tương hợp Mộc, chiêu quý nhân & may mắn',       url: '' },
+    { icon: '🎋', name: 'Tượng Trúc phong thủy',      benefit: 'Biểu tượng bình an, thăng tiến bền vững',       url: '' },
+  ],
+  Thủy: [
+    { icon: '🖤', name: 'Vòng đá Obsidian đen',       benefit: 'Hợp mệnh Thủy, trừ tà, ổn định cảm xúc',       url: '' },
+    { icon: '🐟', name: 'Tượng Cá Chép hóa Rồng',     benefit: 'Thủy vượng công danh, vượt vũ môn',            url: '' },
+    { icon: '💧', name: 'Thác nước phong thủy mini',   benefit: 'Kích hoạt Thủy khí, chiêu tài, thư giãn',       url: '' },
+    { icon: '🔷', name: 'Vòng đá Aquamarine',         benefit: 'Tương hợp Thủy, tăng giao tiếp & duyên lành',   url: '' },
+  ],
+  Hỏa: [
+    { icon: '❤️', name: 'Vòng Thạch Anh Hồng',        benefit: 'Hợp mệnh Hỏa, vượng tình duyên & nhân duyên',  url: '' },
+    { icon: '🐎', name: 'Tượng Ngựa phong thủy',       benefit: 'Hỏa khí thăng tiến, mã đáo thành công',         url: '' },
+    { icon: '🔴', name: 'Vòng đá Mã Não Đỏ (Garnet)',  benefit: 'Bồi bổ Hỏa, tăng nhiệt huyết & sức khỏe',       url: '' },
+    { icon: '🕯️', name: 'Đèn đá muối Himalaya',        benefit: 'Ấm áp Hỏa khí, cân bằng, thanh lọc không gian', url: '' },
+  ],
+  Thổ: [
+    { icon: '💛', name: 'Vòng Thạch Anh Vàng (Citrine)', benefit: 'Hợp mệnh Thổ, chiêu tài, vượng vận kinh doanh', url: '' },
+    { icon: '🐲', name: 'Tỳ Hưu đá vàng',              benefit: 'Thổ sinh tài, giữ lộc, hộ mệnh',               url: '' },
+    { icon: '🟡', name: 'Vòng đá Mắt Hổ Vàng',         benefit: 'Củng cố Thổ khí, tăng bản lĩnh & bền chí',      url: '' },
+    { icon: '🏔️', name: 'Tượng đá Thạch Anh Tóc Vàng',  benefit: 'Ổn định Thổ, tụ khí tài lộc lâu dài',           url: '' },
+  ],
+}
+
+function MenhAffiliate({ year }: { year: number }) {
+  const menh = banMenh(year)
+  const style = HANH_STYLE[menh.hanh]
+  const items = VAT_PHAM_HOP_MENH[menh.hanh] ?? []
+  return (
+    <div className="menh-aff" style={{ '--menh-clr': style.hex } as React.CSSProperties}>
+      <div className="menh-aff-head">
+        <div className="menh-aff-title">
+          🎁 Vật phẩm phong thủy hợp <b>mệnh {menh.hanh}</b>
+        </div>
+        <div className="menh-aff-sub">
+          Bản mệnh: <b>{menh.name}</b> · Màu tương hợp: {style.colors}
+        </div>
+      </div>
+      <div className="menh-aff-grid">
+        {items.map((it, i) => (
+          <div className="maff-card" key={i}>
+            <div className="maff-icon">{it.icon}</div>
+            <div className="maff-body">
+              <div className="maff-name">{it.name}</div>
+              <div className="maff-benefit">{it.benefit}</div>
+            </div>
+            {it.url
+              ? <a className="maff-btn" href={it.url} target="_blank" rel="noopener sponsored nofollow">Xem trên Lazada ↗</a>
+              : <span className="maff-btn maff-btn-soon">Sắp có</span>}
+          </div>
+        ))}
+      </div>
+      <p className="menh-aff-note">Gợi ý theo ngũ hành bản mệnh · Mua qua liên kết giúp ủng hộ website duy trì miễn phí 🙏</p>
+    </div>
+  )
+}
+
 // ── Main App ────────────────────────────────────────────────────────────────
 export default function App() {
   const [form, setForm] = useState<FormData>({
@@ -1702,6 +1827,7 @@ export default function App() {
                     {gridView === 'grid' ? '📋 Danh sách' : '⊞ Lưới'}
                   </button>
                 </div>
+                <MenhAffiliate year={form.year} />
               </>
             )}
 
