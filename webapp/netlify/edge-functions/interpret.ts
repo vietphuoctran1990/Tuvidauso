@@ -1,8 +1,74 @@
-// Netlify Edge Function — Tử Vi AI analysis via DeepSeek
+// Netlify Edge Function — Tử Vi AI analysis
+// Providers (all OpenAI-compatible streaming with multi-turn continuation),
+// tried in this order — the first one that has a key and answers is used:
+//   1. "custom"     → own OpenAI-compatible gateway (CUSTOM_API_URL = base URL
+//                     ending in /v1, CUSTOM_API_KEY, model: CUSTOM_MODEL)
+//   2. "gemini"     → Google Gemini   (GEMINI_API_KEY,     model: GEMINI_MODEL)
+//   3. "openrouter" → OpenRouter      (OPENROUTER_API_KEY, model: OPENROUTER_MODEL)
+//   4. "deepseek"   → DeepSeek API    (DEEPSEEK_API_KEY,   model: DEEPSEEK_MODEL)
+// Each *_API_KEY may hold several keys separated by commas (tried in order).
+// A provider that fails (no connection / bad key / no balance / rate limit)
+// before writing any text falls through to the next one.
 
-const DEEPSEEK_URL   = 'https://api.deepseek.com/v1/chat/completions'
-const DEEPSEEK_MODEL = 'deepseek-chat'
-const DEEPSEEK_MAX   = 8000
+const PROVIDERS = [
+  {
+    url:      '',
+    envUrl:   'CUSTOM_API_URL',
+    model:    'gemini-3.8-flash',
+    maxTok:   8000,
+    envKey:   'CUSTOM_API_KEY',
+    envModel: 'CUSTOM_MODEL',
+    label:    'AI riêng',
+  },
+  {
+    url:      'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+    model:    'gemini-flash-latest',
+    maxTok:   16000,
+    envKey:   'GEMINI_API_KEY',
+    envModel: 'GEMINI_MODEL',
+    label:    'Gemini',
+  },
+  {
+    url:      'https://openrouter.ai/api/v1/chat/completions',
+    model:    'openrouter/auto',
+    maxTok:   8000,
+    envKey:   'OPENROUTER_API_KEY',
+    envModel: 'OPENROUTER_MODEL',
+    label:    'OpenRouter',
+  },
+  {
+    url:      'https://api.deepseek.com/v1/chat/completions',
+    model:    'deepseek-chat',
+    maxTok:   8000,
+    envKey:   'DEEPSEEK_API_KEY',
+    envModel: 'DEEPSEEK_MODEL',
+    label:    'DeepSeek',
+  },
+] as const
+
+type ProviderCfg = typeof PROVIDERS[number]
+
+// 'ok' = finished (or failed after text was already written — no fallback possible)
+// 'skip' = failed before any output → caller may try another key / provider
+type RunResult = { status: 'ok' } | { status: 'skip'; reason: string }
+
+function readEnv(name: string): string | undefined {
+  // @ts-ignore – Deno global
+  return Deno.env.get(name)?.trim() || undefined
+}
+
+// Base URL like https://host/api/v1 → https://host/api/v1/chat/completions
+function resolveUrl(cfg: ProviderCfg): string {
+  if (!('envUrl' in cfg)) return cfg.url
+  const base = readEnv(cfg.envUrl)?.replace(/\/+$/, '') ?? ''
+  if (!base) return ''
+  return base.endsWith('/chat/completions') ? base : `${base}/chat/completions`
+}
+
+function readKeys(cfg: ProviderCfg): string[] {
+  if (!resolveUrl(cfg)) return []
+  return (readEnv(cfg.envKey) ?? '').split(',').map(k => k.trim()).filter(Boolean)
+}
 
 export default async function handler(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') {
@@ -24,12 +90,14 @@ export default async function handler(request: Request): Promise<Response> {
     return new Response('Invalid JSON', { status: 400 })
   }
 
-  // @ts-ignore – Deno global
-  const apiKey: string | undefined = Deno.env.get('DEEPSEEK_API_KEY')?.trim()
+  const chain = PROVIDERS
+    .map(cfg => ({ cfg, keys: readKeys(cfg) }))
+    .filter(p => p.keys.length > 0)
 
-  if (!apiKey) {
+  if (chain.length === 0) {
+    const envList = PROVIDERS.map(p => p.envKey).join(', ')
     return new Response(
-      JSON.stringify({ error: 'Chưa có DeepSeek API key. Vui lòng thêm DEEPSEEK_API_KEY vào Netlify Environment Variables.' }),
+      JSON.stringify({ error: `Chưa có API key nào. Vui lòng thêm một trong các biến ${envList} (AI riêng cần thêm CUSTOM_API_URL) vào Netlify Environment Variables.` }),
       { status: 500, headers: { 'Content-Type': 'application/json' } },
     )
   }
@@ -39,7 +107,18 @@ export default async function handler(request: Request): Promise<Response> {
     async start(controller) {
       const emit = (t: string) => controller.enqueue(encoder.encode(t))
       try {
-        await runProvider(apiKey, chartData, emit)
+        const failures: string[] = []
+        for (const { cfg, keys } of chain) {
+          if (failures.length > 0) emit(`_⚡ ${failures[failures.length - 1]} — chuyển sang ${cfg.label}..._\n\n`)
+          let lastReason = ''
+          for (const key of keys) {
+            const r = await runProvider(cfg, key, chartData, emit)
+            if (r.status === 'ok') return
+            lastReason = r.reason
+          }
+          failures.push(`${cfg.label}: ${lastReason}`)
+        }
+        emit(`[Lỗi: Không AI nào phân tích được.\n${failures.map(f => `• ${f}`).join('\n')}]`)
       } catch (e: any) {
         emit(`\n\n[Lỗi: ${e?.message || 'không xác định'}]`)
       } finally {
@@ -58,50 +137,69 @@ export default async function handler(request: Request): Promise<Response> {
   })
 }
 
-// ─── DeepSeek streaming with auto-continuation ───────────────────────────────
+// ─── OpenAI-compatible streaming with auto-continuation ───────────────────────
 
 async function runProvider(
+  cfg: ProviderCfg,
   apiKey: string,
   chartData: any,
   emit: (t: string) => void,
-): Promise<void> {
+): Promise<RunResult> {
+  const model = readEnv(cfg.envModel) ?? cfg.model
   const messages: { role: string; content: string }[] = [
     { role: 'system', content: SYSTEM_INSTRUCTION },
     { role: 'user',   content: buildFullPrompt(chartData) },
   ]
+  let totalText = ''
 
   for (let pass = 0; pass < 6; pass++) {
-    const res = await fetch(DEEPSEEK_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model:       DEEPSEEK_MODEL,
-        messages,
-        max_tokens:  DEEPSEEK_MAX,
-        temperature: 0.7,
-        stream:      true,
-      }),
-    })
+    let res: Response
+    try {
+      res = await fetch(resolveUrl(cfg), {
+        method: 'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          max_tokens:  cfg.maxTok,
+          temperature: 0.7,
+          stream:      true,
+        }),
+      })
+    } catch (e: any) {
+      const reason = `không kết nối được (${e?.message || 'network error'})`
+      if (!totalText) return { status: 'skip', reason }
+      emit(`\n\n[Lỗi ${cfg.label}: ${reason}]`)
+      return { status: 'ok' }
+    }
 
     if (!res.ok || !res.body) {
       const errText = await res.text().catch(() => '')
       let errMsg = ''
-      try { errMsg = JSON.parse(errText)?.error?.message ?? '' } catch { /* */ }
+      try {
+        const j = JSON.parse(errText)
+        errMsg = (Array.isArray(j) ? j[0] : j)?.error?.message ?? ''
+      } catch { /* */ }
       const low = (errMsg || errText).toLowerCase()
 
-      if (res.status === 401 || low.includes('invalid api key') || low.includes('authentication')) {
-        emit(`[Lỗi 401 DeepSeek: ${errMsg || errText.slice(0, 300)}]`); return
+      let reason: string
+      if (res.status === 401 || res.status === 403 || low.includes('invalid api key') || low.includes('api key not valid') || low.includes('authentication')) {
+        reason = `API key không hợp lệ (kiểm tra ${cfg.envKey})`
+      } else if (res.status === 402 || low.includes('insufficient') || low.includes('quota') || low.includes('balance') || low.includes('credits')) {
+        reason = 'hết số dư / hết quota'
+      } else if (res.status === 429 || low.includes('rate limit')) {
+        reason = 'đang giới hạn tốc độ'
+      } else {
+        reason = `lỗi ${res.status}: ${errMsg || errText.slice(0, 200)}`
       }
-      if (res.status === 402 || low.includes('insufficient balance') || low.includes('quota exceeded')) {
-        emit(`[Lỗi: Tài khoản DeepSeek hết số dư / hết quota.]`); return
-      }
-      if (res.status === 429 || low.includes('rate limit')) {
-        emit(`[Lỗi: DeepSeek đang giới hạn tốc độ. Vui lòng thử lại sau vài giây.]`); return
-      }
-      emit(`[Lỗi DeepSeek ${res.status}: ${errMsg || errText.slice(0, 200)}]`); return
+
+      // Nothing written yet → let caller fall back to another key / provider
+      if (!totalText) return { status: 'skip', reason }
+      emit(`\n\n[Lỗi ${cfg.label}: ${reason}]`)
+      return { status: 'ok' }
     }
 
     const decoder = new TextDecoder()
@@ -116,13 +214,13 @@ async function runProvider(
         const lines = buf.split('\n')
         buf = lines.pop() ?? ''
         for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          const data = line.slice(6).trim()
+          if (!line.startsWith('data:')) continue
+          const data = line.slice(5).trim()
           if (!data || data === '[DONE]') continue
           try {
             const parsed = JSON.parse(data)
             const text: string = parsed?.choices?.[0]?.delta?.content ?? ''
-            if (text) { emit(text); passText += text }
+            if (text) { emit(text); passText += text; totalText += text }
             const fr: string = parsed?.choices?.[0]?.finish_reason ?? ''
             if (fr) finishReason = fr
           } catch { /* ignore malformed SSE */ }
@@ -132,12 +230,14 @@ async function runProvider(
       reader.releaseLock()
     }
 
+    if (!totalText) return { status: 'skip', reason: 'không trả về nội dung' }
     if (finishReason !== 'length') break
 
     // Hit token limit — continue from where stopped
     messages.push({ role: 'assistant', content: passText })
     messages.push({ role: 'user', content: 'Viết tiếp từ đúng chỗ vừa dừng, giữ nguyên độ sâu và cấu trúc luận giải như các mục trước (dẫn chứng → cơ chế → biểu hiện → thời điểm → lời khuyên). Không lặp lại nội dung đã có, không tóm tắt lại.' })
   }
+  return { status: 'ok' }
 }
 
 // ─── System instruction ───────────────────────────────────────────────────────
