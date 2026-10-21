@@ -1463,7 +1463,7 @@ body {
 
 .export-row { text-align: center; margin-top: 14px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 
-/* ── Provider row (DeepSeek / GLM selector) ─────────────────── */
+/* ── Provider row (AI provider selector) ─────────────────── */
 .provider-row {
   display: flex; gap: 8px; justify-content: center; margin-bottom: 18px; flex-wrap: wrap;
 }

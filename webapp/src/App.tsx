@@ -546,7 +546,6 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
   const [done, setDone] = useState(false)
   const [toast, setToast] = useState('')
   const [targetYear, setTargetYear] = useState<number>(initialYear ?? new Date().getFullYear())
-  const provider = 'deepseek'
   const [cooldown, setCooldown] = useState(0)
   useEffect(() => {
     if (initialYear !== undefined) setTargetYear(initialYear)
@@ -593,7 +592,6 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chartData: buildChartData(result, form, daiHan, tieuHan, targetYear),
-          provider,
         }),
       })
       if (!res.ok) {
@@ -652,7 +650,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
             ✦ Phân tích chuyên sâu
           </button>
           <p className="is-note">
-            Năm {targetYear} · DeepSeek · Phân tích chi tiết đầy đủ
+            Năm {targetYear} · Gemini 3.8 Flash · Phân tích chi tiết đầy đủ
           </p>
         </div>
       )}
@@ -661,7 +659,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
         <div className="interpret-loading">
           <div className="spin-container"><span className="spin-sym">☯</span></div>
           <p>Đang phân tích lá số tử vi...</p>
-          <p className="load-sub">DeepSeek đang đọc các sao và tổng hợp kết quả</p>
+          <p className="load-sub">AI đang đọc các sao và tổng hợp kết quả</p>
         </div>
       )}
 
@@ -674,7 +672,7 @@ function InterpretTab({ result, form, daiHan, tieuHan, initialYear, onYearChange
       {text && (
         <div className="interpret-result">
           <div className="interpret-year-badge">
-            🧠 DeepSeek · Năm {targetYear}
+            ✨ Tử Vi AI · Năm {targetYear}
           </div>
           <MdText text={text} />
           {loading && <span className="cursor-blink">▌</span>}
